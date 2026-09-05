@@ -97,9 +97,9 @@ Don't reopen these without a reason:
 
 ## IntelliJ gotchas
 
-Not a git repo yet. The module is registered in the workspace-root `../.idea/modules.xml`, while its
-`EUVModCreatorBack.iml` sits in this folder; `.gitignore` excludes both `.idea/` and `*.iml`, so no IDE config is
-version-controlled.
+The module is registered in the workspace-root `../.idea/modules.xml`, while its `EUVModCreatorBack.iml` sits in
+this folder; `.gitignore` excludes both `.idea/` and `*.iml`, so no IDE config is version-controlled here. (The
+frontend repo does track its `.iml` — the two repos differ on this.)
 
 **The IntelliJ module name must equal the pom's `artifactId`.** IntelliJ syncs the two in *both* directions —
 giving the module a friendlier name rewrote `<artifactId>` to it and broke the build with `'artifactId' with
