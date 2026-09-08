@@ -3,6 +3,14 @@
 Java + Spring Boot API for the EU5 mod creator. Workspace context — what the app is for, how Andre wants to work,
 commit message rules — is in the parent `../CLAUDE.md`, which loads alongside this file.
 
+## `.ai-support/` docs
+
+Backend notes too long for this file — the reasoning behind the rules here. Convention: `../CLAUDE.md`.
+**Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
+
+- [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing and hash storage for
+  Flyway migrations. Figures measured, not recalled.
+
 ## Commands
 
 Run these from this folder. `JAVA_HOME` is not set system-wide; the JDK is at `~/.jdks/openjdk-25`.
@@ -41,7 +49,7 @@ src/main/resources/
 ├─ application.properties              <- shared config, always loaded
 ├─ application-local.properties        <- local datasource
 ├─ application-production.properties   <- env-var driven, no fallbacks
-└─ db/migration/                       <- Flyway migrations, V1__snake_case.sql; empty so far
+└─ db/migration/                       <- Flyway migrations, V2026.09.08_001__snake_case.sql; empty so far
 src/test/java/com/euvmodcreator/
 ```
 
@@ -88,10 +96,15 @@ Don't reopen these without a reason:
 - **Spring Data JPA, not Spring Data JDBC or raw `JdbcClient`.** JPA is what the docs and answers Andre will find
   all assume. `JdbcClient` is still available for queries where JPA gets in the way.
 - **Flyway owns the schema, not Hibernate.** See `ddl-auto` above.
-- **No Spring Security yet.** Login is planned. Adding the starter early puts every endpoint behind a generated
-  password before there is anything to protect. When it lands: **session cookies, not JWT** — one backend,
-  server-side revocation, `HttpOnly` beats a token in browser storage. "Sign in with Discord" via OAuth2 Client
-  is worth weighing first, given the audience.
+- **Migrations are versioned by date, not a running counter.** `V2026.09.08_001__create_users.sql`, `_002` for
+  the next one that day. Versions compare numerically, so pad every part identically (`V2026.9.8_1` duplicates
+  `V2026.09.08_001`) and never start a day at `_000` (trailing zero parts are stripped).
+- **Auth is JWT plus a server-side session row**, not stateless JWT and not plain session cookies. A short-lived
+  access token, and a rotatable refresh token stored *hashed* in `user_sessions` — the stored row is what keeps
+  revocation working. The refresh token travels in an `HttpOnly` cookie, never `localStorage`. Tables: `users`,
+  `user_auth` (1:1, password hash), `user_sessions`. Spring Security is not a dependency yet — adding it locks
+  every endpoint behind a generated password immediately. Still open: Discord OAuth2 vs username + password, and
+  `users` has no email column, so password reset is impossible until that is settled.
 - **CORS is Spring Web, not Spring Security.** The Vite dev server on `localhost:5173` calling `localhost:8080`
   needs a `WebMvcConfigurer` with `addCorsMappings`. The browser error reads like an auth failure and is not.
 
