@@ -69,6 +69,8 @@ auth/
 
 Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
 whatever stays in one folder (`AuthService`, `JwtProperties`). No project-wide `controller/` or `service/` packages.
+Code every feature shares gets its own top-level package instead: `error/` (API error handling), `validation/`
+(custom Bean Validation constraints), `database/` (`BaseEntity`).
 After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
 old package stay in `target/` and fail startup with `share the entity name`.
 
@@ -129,6 +131,15 @@ Don't reopen these without a reason:
   stateless and CSRF is off, which is only safe while the refresh cookie is `SameSite`.
 - **CORS is Spring Web, not Spring Security.** The Vite dev server on `localhost:5173` calling `localhost:8080`
   needs a `WebMvcConfigurer` with `addCorsMappings`. The browser error reads like an auth failure and is not.
+- **Errors are RFC 9457 Problem Details carrying a `code`; the frontend translates, the backend never does.**
+  `GlobalExceptionHandler` (`@RestControllerAdvice`) gives every error response a stable `code` — `snake_case`,
+  namespaced by feature for domain errors (`auth.username_taken`), derived from the status for Spring MVC's own
+  (`method_not_allowed`). Validation failures add `errors: [{field, code, params}]`, where `code` is the constraint
+  name (`Size`) and `params` its attributes (`min`, `max`). A domain error is a subclass of `ApiException` with its
+  status, code and optional `params` map, sent as a top-level `params` for the translation to interpolate — data
+  only, nothing the user may not see. Not `@ResponseStatus`, which produces no code. `detail` is English for developers; never show
+  it to users, never put exception internals in it. `SecurityConfig` permits `DispatcherType.ERROR`, or Tomcat's
+  forward to `/error` turns every 4xx into a 401.
 
 ## IntelliJ gotchas
 

@@ -24,7 +24,7 @@ class AuthService {
     User register(RegisterRequest registerRequest) {
         boolean userExists = userRepository.existsByUsernameIgnoreCase(registerRequest.username());
         if (userExists) {
-            throw new UsernameTakenException("username already exists");
+            throw new UsernameTakenException();
         }
 
         User user = new User();
