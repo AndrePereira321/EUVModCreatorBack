@@ -2,17 +2,17 @@ package com.euvmodcreator.auth;
 
 import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.RegisterRequest;
+import com.euvmodcreator.auth.entity.User;
+import com.euvmodcreator.auth.entity.UserAuth;
+import com.euvmodcreator.auth.entity.UserSession;
 import com.euvmodcreator.auth.exception.InvalidCredentialsException;
 import com.euvmodcreator.auth.exception.InvalidRefreshTokenException;
 import com.euvmodcreator.auth.exception.UsernameTakenException;
-import com.euvmodcreator.auth.model.User;
-import com.euvmodcreator.auth.model.UserAuth;
-import com.euvmodcreator.auth.model.UserSession;
+import com.euvmodcreator.auth.model.AuthResult;
 import com.euvmodcreator.auth.repository.LoginCredentials;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
-import com.euvmodcreator.auth.result.LoginResult;
 import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,10 +31,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatNoException;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -52,6 +49,8 @@ class AuthServiceTest {
 
     private static final RefreshToken REFRESH_TOKEN =
             new RefreshToken("refresh-token", Instant.parse("2026-10-25T12:00:00Z"));
+
+    private static final UUID SESSION_ID = UUID.randomUUID();
 
     @Mock
     private UserRepository userRepository;
@@ -116,7 +115,7 @@ class AuthServiceTest {
     void loginReturnsAccessTokenAndRefreshToken() {
         stubSuccessfulLogin();
 
-        LoginResult result = authService.login(LOGIN);
+        AuthResult result = authService.login(LOGIN);
 
         assertThat(result.accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isEqualTo(REFRESH_TOKEN);
@@ -133,6 +132,16 @@ class AuthServiceTest {
         assertThat(savedSession.getValue().getUserId()).isEqualTo(user.getId());
         assertThat(savedSession.getValue().getRefreshTokenHash()).isEqualTo("hashed-refresh-token");
         assertThat(savedSession.getValue().getExpiresAt()).isEqualTo(REFRESH_TOKEN.expiresAt());
+    }
+
+    // The sid claim is how a later request knows which session it belongs to.
+    @Test
+    void loginIssuesTheAccessTokenForTheNewSession() {
+        User user = stubSuccessfulLogin();
+
+        authService.login(LOGIN);
+
+        verify(tokenService).issueAccessToken(user.getId(), SESSION_ID);
     }
 
     @Test
@@ -174,10 +183,11 @@ class AuthServiceTest {
         RefreshToken rotated = new RefreshToken("new-token", expiresAt);
         when(tokenService.newRefreshToken(expiresAt)).thenReturn(rotated);
         when(tokenService.hashRefreshToken("new-token")).thenReturn("hashed-new-token");
-        when(tokenService.issueAccessToken(session.getUserId())).thenReturn("access-token");
+        when(tokenService.issueAccessToken(session.getUserId(), SESSION_ID)).thenReturn("access-token");
 
-        LoginResult result = authService.refresh("old-token");
+        AuthResult result = authService.refresh("old-token");
 
+        verify(tokenService).issueAccessToken(session.getUserId(), SESSION_ID);
         assertThat(result.accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isEqualTo(rotated);
         assertThat(session.getRefreshTokenHash()).isEqualTo("hashed-new-token");
@@ -263,12 +273,19 @@ class AuthServiceTest {
         when(passwordEncoder.matches("password123", REAL_HASH)).thenReturn(true);
         when(tokenService.newRefreshToken()).thenReturn(REFRESH_TOKEN);
         when(tokenService.hashRefreshToken("refresh-token")).thenReturn("hashed-refresh-token");
-        when(tokenService.issueAccessToken(user.getId())).thenReturn("access-token");
+        // The real repository assigns the id on save; the mock has to do it by hand.
+        when(userSessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> {
+            UserSession session = invocation.getArgument(0);
+            ReflectionTestUtils.setField(session, "id", SESSION_ID);
+            return session;
+        });
+        when(tokenService.issueAccessToken(user.getId(), SESSION_ID)).thenReturn("access-token");
         return user;
     }
 
     private UserSession storedSession(Instant expiresAt) {
         UserSession session = new UserSession();
+        ReflectionTestUtils.setField(session, "id", SESSION_ID);
         session.setUserId(UUID.randomUUID());
         session.setRefreshTokenHash("hashed-old-token");
         session.setExpiresAt(expiresAt);
@@ -282,7 +299,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.refresh("old-token")).isInstanceOf(InvalidRefreshTokenException.class);
 
         verify(tokenService, never()).newRefreshToken(any());
-        verify(tokenService, never()).issueAccessToken(any());
+        verify(tokenService, never()).issueAccessToken(any(), any());
     }
 
 }

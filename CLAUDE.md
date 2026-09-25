@@ -8,8 +8,9 @@ commit message rules — is in the parent `../CLAUDE.md`, which loads alongside 
 Backend notes too long for this file — the reasoning behind the rules here. Convention: `../CLAUDE.md`.
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
-- [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, and why login, refresh, logout,
-  usernames and passwords work the way they do.
+- [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, how a request gets the current
+  user, what the frontend must do, where a cache would go, and why login, refresh, logout, usernames and passwords
+  work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing (including
   case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not recalled.
 
@@ -64,13 +65,13 @@ controller and service sit at the feature root, and the rest splits into role su
 
 ```
 auth/
-├─ AuthController, AuthService
+├─ AuthController, AuthService, UserController, UserService
 ├─ dto/         <- request and response records, never entities
+├─ entity/      <- @Entity classes
 ├─ exception/   <- the feature's ApiException subclasses
-├─ model/       <- @Entity classes
+├─ model/       <- records a service hands its controller, never an HTTP body (AuthResult, UserSummary)
 ├─ repository/  <- Spring Data interfaces, and the records their queries return (LoginCredentials)
-├─ result/      <- records a service hands its controller, never serialized (LoginResult)
-└─ security/    <- SecurityConfig, AuthProperties, TokenService
+└─ security/    <- SecurityConfig, AuthProperties, TokenService, the current-user principal, the 401 entry point
 ```
 
 Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
@@ -167,7 +168,9 @@ Don't reopen these without a reason:
   status, code and optional `params` map, sent as a top-level `params` for the translation to interpolate — data
   only, nothing the user may not see. Not `@ResponseStatus`, which produces no code. `detail` is English for
   developers; never show it to users, never put exception internals in it. `SecurityConfig` permits
-  `DispatcherType.ERROR`, or Tomcat's forward to `/error` turns every 4xx into a 401.
+  `DispatcherType.ERROR`, or Tomcat's forward to `/error` turns every 4xx into a 401. The security filters run
+  before `DispatcherServlet`, out of the advice's reach: `AccessTokenEntryPoint` passes their 401 to the MVC
+  `HandlerExceptionResolver`, so it comes out of `GlobalExceptionHandler` too.
 
 ## Auth
 
@@ -182,6 +185,14 @@ before changing anything in `auth/`.
   concurrent refreshes both succeed.
 - Logout never fails: 204 and a cleared cookie, whatever the token. The clearing cookie comes from the same
   `refreshTokenCookie` builder as the real one; with a different name or path the browser keeps the real one.
+- A controller gets the caller as `@CurrentUser AuthenticatedUser` (user id from `sub`, session id from `sid`) and
+  passes the ids to services as parameters. `AuthenticatedUserConverter` builds it from the token alone, never from
+  the database, and rejects a bad token with an `AuthenticationException` subclass; anything else becomes a 500.
+- Access tokens are checked by signature and `exp` only, so revoking a session takes up to `access-token-ttl` to
+  reach them. A validator added to the decoder must keep `JwtValidators.createDefault()`, which is what checks `exp`.
+- `UserService.findUser` returns a record, never the entity, so a cache can go on it later.
+- `@Qualifier` on a constructor parameter needs a hand-written constructor: Lombok's `@RequiredArgsConstructor`
+  drops it.
 - Username lookups filter on `lower(username)` in a hand-written `@Query`; a derived `...IgnoreCase` compiles to
   `upper()` and skips the index.
 - No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user.

@@ -32,18 +32,26 @@ class TokenServiceTest {
     private final JwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
 
     @Test
-    void issuesTokenWhoseSubjectIsTheUserId() {
-        UUID id = UUID.randomUUID();
+    void issuesTokenCarryingTheUserIdAndTheSessionId() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
 
-        Jwt jwt = decoder.decode(tokenService.issueAccessToken(id));
+        Jwt jwt = decoder.decode(tokenService.issueAccessToken(userId, sessionId));
 
-        assertThat(jwt.getSubject()).isEqualTo(id.toString());
+        assertThat(jwt.getSubject()).isEqualTo(userId.toString());
+        assertThat(jwt.getClaimAsString("sid")).isEqualTo(sessionId.toString());
         assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(ACCESS_TTL);
     }
 
     @Test
     void refusesMissingUserId() {
-        assertThatThrownBy(() -> tokenService.issueAccessToken(null))
+        assertThatThrownBy(() -> tokenService.issueAccessToken(null, UUID.randomUUID()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void refusesMissingSessionId() {
+        assertThatThrownBy(() -> tokenService.issueAccessToken(UUID.randomUUID(), null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

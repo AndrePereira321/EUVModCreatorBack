@@ -4,8 +4,8 @@ import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.LoginResponse;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
-import com.euvmodcreator.auth.model.User;
-import com.euvmodcreator.auth.result.LoginResult;
+import com.euvmodcreator.auth.entity.User;
+import com.euvmodcreator.auth.model.AuthResult;
 import com.euvmodcreator.auth.security.RefreshToken;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +36,7 @@ public class AuthController {
 
     @PostMapping("/login")
     ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest loginRequest) {
-        LoginResult result = authService.login(loginRequest);
+        AuthResult result = authService.login(loginRequest);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookie(result.refreshToken()).toString())
@@ -45,7 +45,7 @@ public class AuthController {
 
     @PostMapping("/refresh")
     ResponseEntity<LoginResponse> refresh(@CookieValue(name = REFRESH_TOKEN_COOKIE, required = false) String refreshToken) {
-        LoginResult result = authService.refresh(refreshToken);
+        AuthResult result = authService.refresh(refreshToken);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookie(result.refreshToken()).toString())

@@ -1,6 +1,6 @@
 package com.euvmodcreator.auth.repository;
 
-import com.euvmodcreator.auth.model.User;
+import com.euvmodcreator.auth.entity.User;
 
 public record LoginCredentials(
         User user,

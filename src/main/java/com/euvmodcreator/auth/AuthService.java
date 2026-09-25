@@ -2,17 +2,17 @@ package com.euvmodcreator.auth;
 
 import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.RegisterRequest;
+import com.euvmodcreator.auth.entity.User;
+import com.euvmodcreator.auth.entity.UserAuth;
+import com.euvmodcreator.auth.entity.UserSession;
 import com.euvmodcreator.auth.exception.InvalidCredentialsException;
 import com.euvmodcreator.auth.exception.InvalidRefreshTokenException;
 import com.euvmodcreator.auth.exception.UsernameTakenException;
-import com.euvmodcreator.auth.model.User;
-import com.euvmodcreator.auth.model.UserAuth;
-import com.euvmodcreator.auth.model.UserSession;
+import com.euvmodcreator.auth.model.AuthResult;
 import com.euvmodcreator.auth.repository.LoginCredentials;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
-import com.euvmodcreator.auth.result.LoginResult;
 import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import jakarta.annotation.PostConstruct;
@@ -65,7 +65,7 @@ class AuthService {
         return savedUser;
     }
 
-    LoginResult login(LoginRequest request) {
+    AuthResult login(LoginRequest request) {
         Optional<LoginCredentials> credentials =
                 userAuthRepository.findLoginCredentials(request.username());
 
@@ -75,13 +75,13 @@ class AuthService {
 
         User user = credentials.orElseThrow().user();
         RefreshToken refreshToken = tokenService.newRefreshToken();
-        createNewUserSession(user.getId(), refreshToken);
+        UserSession userSession = createNewUserSession(user.getId(), refreshToken);
 
-        return new LoginResult(tokenService.issueAccessToken(user.getId()), refreshToken);
+        return new AuthResult(tokenService.issueAccessToken(user.getId(), userSession.getId()), refreshToken);
     }
 
     @Transactional
-    LoginResult refresh(String refreshToken) {
+    AuthResult refresh(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new InvalidRefreshTokenException();
         }
@@ -102,7 +102,7 @@ class AuthService {
         RefreshToken newRefreshToken = tokenService.newRefreshToken(userSession.getExpiresAt());
         userSession.setRefreshTokenHash(tokenService.hashRefreshToken(newRefreshToken.value()));
 
-        return new LoginResult(tokenService.issueAccessToken(userSession.getUserId()), newRefreshToken);
+        return new AuthResult(tokenService.issueAccessToken(userSession.getUserId(), userSession.getId()), newRefreshToken);
     }
 
     @Transactional
@@ -116,14 +116,14 @@ class AuthService {
                 .ifPresent(userSession -> userSession.setRevokedAt(Instant.now()));
     }
 
-    private void createNewUserSession(UUID userId, RefreshToken refreshToken) {
+    private UserSession createNewUserSession(UUID userId, RefreshToken refreshToken) {
         UserSession userSession = new UserSession();
 
         userSession.setUserId(userId);
         userSession.setRefreshTokenHash(tokenService.hashRefreshToken(refreshToken.value()));
         userSession.setExpiresAt(refreshToken.expiresAt());
 
-        userSessionRepository.save(userSession);
+        return userSessionRepository.save(userSession);
     }
 
     private boolean passwordMatches(String password, Optional<LoginCredentials> credentials) {

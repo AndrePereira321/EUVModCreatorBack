@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -40,7 +41,7 @@ class LoginEndpointTest extends IntegrationTest {
     private UserSessionRepository userSessionRepository;
 
     @Test
-    void returnsAccessTokenForTheUser() {
+    void returnsAccessTokenForTheUserAndTheNewSession() {
         UUID id = register("Andre", "password123");
 
         LoginResponse response = login("Andre", "password123")
@@ -50,7 +51,9 @@ class LoginEndpointTest extends IntegrationTest {
                 .getResponseBody();
 
         assertThat(response).isNotNull();
-        assertThat(jwtDecoder.decode(response.accessToken()).getSubject()).isEqualTo(id.toString());
+        Jwt jwt = jwtDecoder.decode(response.accessToken());
+        assertThat(jwt.getSubject()).isEqualTo(id.toString());
+        assertThat(jwt.getClaimAsString("sid")).isEqualTo(userSessionRepository.findAll().getFirst().getId().toString());
 
         // No controller behind this path: a 404 means the token got through security.
         client.get().uri("/api/nothing-here")

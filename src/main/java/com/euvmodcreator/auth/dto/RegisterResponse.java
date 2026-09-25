@@ -1,6 +1,6 @@
 package com.euvmodcreator.auth.dto;
 
-import com.euvmodcreator.auth.model.User;
+import com.euvmodcreator.auth.entity.User;
 
 import java.util.UUID;
 

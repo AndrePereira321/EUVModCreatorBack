@@ -1,6 +1,6 @@
 package com.euvmodcreator.auth.repository;
 
-import com.euvmodcreator.auth.model.UserAuth;
+import com.euvmodcreator.auth.entity.UserAuth;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 

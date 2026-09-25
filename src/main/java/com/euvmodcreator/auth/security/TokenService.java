@@ -22,18 +22,22 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TokenService {
 
+    static final String SESSION_ID_CLAIM = "sid";
+
     private static final SecureRandom secureRandom = new SecureRandom();
 
     private final AuthProperties properties;
 
     private final JwtEncoder jwtEncoder;
 
-    public String issueAccessToken(UUID userId) {
+    public String issueAccessToken(UUID userId, UUID sessionId) {
         Assert.notNull(userId, "User must be saved before a token can be issued");
+        Assert.notNull(sessionId, "Session must be saved before a token can be issued");
 
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .subject(userId.toString())
+                .claim(SESSION_ID_CLAIM, sessionId.toString())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.accessTokenTtl()))
                 .build();

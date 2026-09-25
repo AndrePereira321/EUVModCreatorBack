@@ -1,15 +1,15 @@
-package com.euvmodcreator.auth.result;
+package com.euvmodcreator.auth.model;
 
 import com.euvmodcreator.auth.security.RefreshToken;
 
-public record LoginResult(
+public record AuthResult(
         String accessToken,
         RefreshToken refreshToken
 ) {
 
     @Override
     public String toString() {
-        return "LoginResult[accessToken=***, refreshToken=" + refreshToken + "]";
+        return "AuthResult[accessToken=***, refreshToken=" + refreshToken + "]";
     }
 
 }

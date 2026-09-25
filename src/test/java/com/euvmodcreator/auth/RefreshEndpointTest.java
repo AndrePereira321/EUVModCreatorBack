@@ -5,7 +5,7 @@ import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.LoginResponse;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
-import com.euvmodcreator.auth.model.UserSession;
+import com.euvmodcreator.auth.entity.UserSession;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
 import com.euvmodcreator.auth.security.TokenService;
 import org.junit.jupiter.api.Test;
@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -20,11 +21,7 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,7 +42,7 @@ class RefreshEndpointTest extends IntegrationTest {
     private JdbcClient jdbcClient;
 
     @Test
-    void returnsAccessTokenForTheSessionUser() {
+    void returnsAccessTokenForTheSameUserAndSession() {
         UUID id = register();
 
         LoginResponse response = refresh(login())
@@ -55,7 +52,9 @@ class RefreshEndpointTest extends IntegrationTest {
                 .getResponseBody();
 
         assertThat(response).isNotNull();
-        assertThat(jwtDecoder.decode(response.accessToken()).getSubject()).isEqualTo(id.toString());
+        Jwt jwt = jwtDecoder.decode(response.accessToken());
+        assertThat(jwt.getSubject()).isEqualTo(id.toString());
+        assertThat(jwt.getClaimAsString("sid")).isEqualTo(userSessionRepository.findAll().getFirst().getId().toString());
     }
 
     @Test

@@ -4,7 +4,6 @@ import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -27,8 +26,11 @@ public class SecurityConfig {
 
     private final SecretKey jwtKey;
 
-    SecurityConfig(AuthProperties authProperties) {
+    private final AccessTokenEntryPoint accessTokenEntryPoint;
+
+    SecurityConfig(AuthProperties authProperties, AccessTokenEntryPoint accessTokenEntryPoint) {
         this.jwtKey = new SecretKeySpec(Base64.getDecoder().decode(authProperties.secret()), "HmacSHA256");
+        this.accessTokenEntryPoint = accessTokenEntryPoint;
     }
 
     @Bean
@@ -39,7 +41,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .anyRequest().authenticated()
                 )
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(new AuthenticatedUserConverter()))
+                        .authenticationEntryPoint(accessTokenEntryPoint)
+                )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(AbstractHttpConfigurer::disable);
 
