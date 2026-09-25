@@ -77,7 +77,8 @@ auth/
 Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
 whatever stays in one folder (`AuthService`, `AuthProperties`). No project-wide `controller/` or `service/` packages.
 Code every feature shares gets its own top-level package instead: `error/` (API error handling), `validation/`
-(custom Bean Validation constraints), `database/` (`BaseEntity`).
+(custom Bean Validation constraints), `database/` (`BaseEntity`), `web/` (`WebConfig`, the Spring MVC settings every
+controller shares).
 After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
 old package stay in `target/` and fail startup with `share the entity name`.
 
@@ -159,7 +160,10 @@ Don't reopen these without a reason:
   `V2026.09.08_001`) and never start a day at `_000` (trailing zero parts are stripped).
 - **Auth is JWT plus a server-side session row** — see the Auth section below.
 - **CORS is Spring Web, not Spring Security.** The Vite dev server on `localhost:5173` calling `localhost:8080`
-  needs a `WebMvcConfigurer` with `addCorsMappings`. The browser error reads like an auth failure and is not.
+  needs `addCorsMappings` in `WebConfig`. The browser error reads like an auth failure and is not.
+- **Every `@RestController` sits under `/api`, added once by `WebConfig.configurePathMatch`.** Controllers map
+  without it (`@RequestMapping("/auth")`). What sees the raw URL still writes it: `SecurityConfig`'s matchers, the
+  cookie path, and the tests. Not `server.servlet.context-path`, which would move `/error` and everything else too.
 - **Errors are RFC 9457 Problem Details carrying a `code`; the frontend translates, the backend never does.**
   `GlobalExceptionHandler` (`@RestControllerAdvice`) gives every error response a stable `code` — `snake_case`,
   namespaced by feature for domain errors (`auth.username_taken`), derived from the status for Spring MVC's own
