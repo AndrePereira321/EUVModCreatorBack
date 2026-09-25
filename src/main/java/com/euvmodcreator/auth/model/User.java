@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth;
+package com.euvmodcreator.auth.model;
 
 import com.euvmodcreator.database.BaseEntity;
 import jakarta.persistence.Entity;

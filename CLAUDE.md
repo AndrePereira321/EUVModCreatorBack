@@ -55,7 +55,22 @@ src/main/resources/
 src/test/java/com/euvmodcreator/
 ```
 
-Flat by design — no `controller/`, `service/`, `repository/` packages until there is enough code to justify them.
+**Package by feature, then by role inside the feature.** Top-level packages are features (`auth`); inside one, the
+controller, service and feature exceptions sit at the feature root, and the rest splits into role sub-packages:
+
+```
+auth/
+├─ AuthController, AuthService, UsernameTakenException
+├─ dto/         <- request and response records, never entities
+├─ model/       <- @Entity classes
+├─ repository/  <- Spring Data interfaces
+└─ security/    <- SecurityConfig, JwtProperties, TokenService
+```
+
+Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
+whatever stays in one folder (`AuthService`, `JwtProperties`). No project-wide `controller/` or `service/` packages.
+After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
+old package stay in `target/` and fail startup with `share the entity name`.
 
 ## Configuration and profiles
 

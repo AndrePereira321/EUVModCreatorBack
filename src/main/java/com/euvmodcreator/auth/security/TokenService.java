@@ -1,5 +1,6 @@
-package com.euvmodcreator.auth;
+package com.euvmodcreator.auth.security;
 
+import com.euvmodcreator.auth.model.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -19,7 +20,7 @@ public class TokenService {
 
     private final JwtEncoder jwtEncoder;
 
-    String issueAccessToken(User user) {
+    public String issueAccessToken(User user) {
         Assert.state(user.getId() != null, "User must be saved before a token can be issued");
 
         Instant now = Instant.now();

@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth;
+package com.euvmodcreator.auth.security;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;

@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth;
+package com.euvmodcreator.auth.model;
 
 import com.euvmodcreator.database.BaseEntity;
 import jakarta.persistence.Entity;
@@ -7,17 +7,22 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "user_auth")
+@Table(name = "user_sessions")
 @Getter
 @Setter
 @NoArgsConstructor
-public class UserAuth extends BaseEntity {
+public class UserSession extends BaseEntity {
 
     private UUID userId;
 
-    private String passwordHash;
+    private String refreshTokenHash;
+
+    private Instant expiresAt;
+
+    private Instant revokedAt;
 
 }
