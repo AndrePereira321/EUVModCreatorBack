@@ -8,8 +8,8 @@ commit message rules — is in the parent `../CLAUDE.md`, which loads alongside 
 Backend notes too long for this file — the reasoning behind the rules here. Convention: `../CLAUDE.md`.
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
-- [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, and why login, refresh, usernames
-  and passwords work the way they do.
+- [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, and why login, refresh, logout,
+  usernames and passwords work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing (including
   case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not recalled.
 
@@ -180,6 +180,8 @@ before changing anything in `auth/`.
 - Refresh never extends a session: the rotated token keeps the session's `expires_at`. It rotates the hash on the
   same row, inside a `@Transactional` method, and `findByRefreshTokenHash` keeps its `@Lock`; without the lock, two
   concurrent refreshes both succeed.
+- Logout never fails: 204 and a cleared cookie, whatever the token. The clearing cookie comes from the same
+  `refreshTokenCookie` builder as the real one; with a different name or path the browser keeps the real one.
 - Username lookups filter on `lower(username)` in a hand-written `@Query`; a derived `...IgnoreCase` compiles to
   `upper()` and skips the index.
 - No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user.

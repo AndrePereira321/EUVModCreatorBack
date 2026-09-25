@@ -27,11 +27,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -213,6 +216,42 @@ class AuthServiceTest {
 
         assertRefreshRejected();
         assertThat(session.getRefreshTokenHash()).isEqualTo("hashed-old-token");
+    }
+
+    @Test
+    void logoutRevokesTheSession() {
+        UserSession session = storedSession(Instant.now().plus(Duration.ofDays(10)));
+
+        authService.logout("old-token");
+
+        assertThat(session.getRevokedAt()).isCloseTo(Instant.now(), within(1, ChronoUnit.MINUTES));
+    }
+
+    @Test
+    void logoutKeepsTheFirstRevocationTime() {
+        UserSession session = storedSession(Instant.now().plus(Duration.ofDays(10)));
+        Instant firstLogout = Instant.now().minus(Duration.ofHours(1));
+        session.setRevokedAt(firstLogout);
+
+        authService.logout("old-token");
+
+        assertThat(session.getRevokedAt()).isEqualTo(firstLogout);
+    }
+
+    @Test
+    void logoutIgnoresMissingToken() {
+        assertThatNoException().isThrownBy(() -> authService.logout(null));
+        assertThatNoException().isThrownBy(() -> authService.logout(" "));
+
+        verifyNoInteractions(tokenService, userSessionRepository);
+    }
+
+    @Test
+    void logoutIgnoresUnknownToken() {
+        when(tokenService.hashRefreshToken("old-token")).thenReturn("hashed-old-token");
+        when(userSessionRepository.findByRefreshTokenHash("hashed-old-token")).thenReturn(Optional.empty());
+
+        assertThatNoException().isThrownBy(() -> authService.logout("old-token"));
     }
 
     private User stubSuccessfulLogin() {

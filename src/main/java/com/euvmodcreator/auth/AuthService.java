@@ -105,6 +105,17 @@ class AuthService {
         return new LoginResult(tokenService.issueAccessToken(userSession.getUserId()), newRefreshToken);
     }
 
+    @Transactional
+    void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+
+        userSessionRepository.findByRefreshTokenHash(tokenService.hashRefreshToken(refreshToken))
+                .filter(userSession -> userSession.getRevokedAt() == null)
+                .ifPresent(userSession -> userSession.setRevokedAt(Instant.now()));
+    }
+
     private void createNewUserSession(UUID userId, RefreshToken refreshToken) {
         UserSession userSession = new UserSession();
 

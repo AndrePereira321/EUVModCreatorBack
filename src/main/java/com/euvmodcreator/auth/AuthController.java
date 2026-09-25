@@ -52,13 +52,26 @@ public class AuthController {
                 .body(new LoginResponse(result.accessToken()));
     }
 
+    @PostMapping("/logout")
+    ResponseEntity<Void> logout(@CookieValue(name = REFRESH_TOKEN_COOKIE, required = false) String refreshToken) {
+        authService.logout(refreshToken);
+
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie("", Duration.ZERO).toString())
+                .build();
+    }
+
     private static ResponseCookie refreshTokenCookie(RefreshToken refreshToken) {
-        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, refreshToken.value())
+        return refreshTokenCookie(refreshToken.value(), Duration.between(Instant.now(), refreshToken.expiresAt()));
+    }
+
+    private static ResponseCookie refreshTokenCookie(String value, Duration maxAge) {
+        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, value)
                 .httpOnly(true)
                 .secure(true)
                 .sameSite("Strict")
                 .path("/api/auth")
-                .maxAge(Duration.between(Instant.now(), refreshToken.expiresAt()))
+                .maxAge(maxAge)
                 .build();
     }
 

@@ -5,12 +5,12 @@ break by accident are repeated as one-liners in `CLAUDE.md`; this file is the re
 
 ## Endpoints
 
-| endpoint                  | status  | returns                                                        |
-| ------------------------- | ------- | -------------------------------------------------------------- |
-| `POST /api/auth/register` | built   | 201 `{id, username}` — does not log in                         |
-| `POST /api/auth/login`    | built   | 200 `{accessToken}` + `refresh_token` cookie, starts a session |
-| `POST /api/auth/refresh`  | built   | 200 `{accessToken}` + rotated `refresh_token` cookie           |
-| `POST /api/auth/logout`   | planned | revokes the session, clears the cookie                         |
+| endpoint                  | status | returns                                                        |
+| ------------------------- | ------ | -------------------------------------------------------------- |
+| `POST /api/auth/register` | built  | 201 `{id, username}` — does not log in                         |
+| `POST /api/auth/login`    | built  | 200 `{accessToken}` + `refresh_token` cookie, starts a session |
+| `POST /api/auth/refresh`  | built  | 200 `{accessToken}` + rotated `refresh_token` cookie           |
+| `POST /api/auth/logout`   | built  | 204 + cleared `refresh_token` cookie, ends the session         |
 
 ## JWT plus a server-side session row
 
@@ -165,6 +165,29 @@ browser may keep whichever cookie arrived last, possibly a dead one.
 - It rolls back on any `RuntimeException`, which includes `ApiException`. Anything written before a `throw` inside the
   method never reaches the database, so a failed refresh can't revoke or change the session.
 
+## Logout
+
+Revokes the session the cookie belongs to (sets `revoked_at`) and clears the cookie: 204, no body.
+
+**It never fails.** A missing cookie, an unknown token, and a session already revoked or expired all get the same 204
+and the cleared cookie. The user asked to be logged out and afterwards is; an error would hand the frontend a case
+with nothing to do about it. A second logout keeps the first `revoked_at`.
+
+**No access token.** `/api/auth/**` is open and the cookie identifies the session, so logout still works once the
+access token has expired. `SameSite=Strict` keeps other sites from sending the cookie, so none of them can log the
+user out.
+
+**Clearing a cookie means overwriting it.** HTTP has no delete: the response sets the same cookie, empty, with
+`Max-Age=0`, and the browser drops it. The browser matches cookies on name, domain and path, so a clearing cookie with
+another path would sit next to the real one and change nothing. `AuthController.refreshTokenCookie(value, maxAge)`
+builds both, so they can't drift apart; `LogoutEndpointTest` checks every attribute.
+
+**One device only.** The user's other sessions keep working. "Log out everywhere" would revoke all of the user's rows,
+which needs to know who the user is — the access token — and isn't built.
+
+**Access tokens outlive it** by up to `access-token-ttl`; the frontend throws its copy away. The same accepted gap as
+at the end of a session (see [Refresh](#refresh)).
+
 ## Where password hashes are read
 
 `user_auth` is split from `users` so ordinary user queries never carry a hash. Exactly one query reads it:
@@ -178,4 +201,5 @@ hold the foreign key (without bytecode enhancement), so every `User` load would 
 
 - **Discord OAuth2 vs username + password.** Not settled.
 - **No email column** on `users`, so password reset is impossible until the above is decided.
-- **Later:** rate limiting on login, a cleanup job for expired sessions, a Have I Been Pwned check on new passwords.
+- **Later:** "log out everywhere", rate limiting on login, a cleanup job for expired and revoked sessions, a Have I
+  Been Pwned check on new passwords.
