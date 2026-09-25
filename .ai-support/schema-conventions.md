@@ -41,6 +41,17 @@ Hash indexes only win on large keys (64-char text: 6.5 MB against 18 MB) and los
 against 6184 kB). They also support only `=`, only one column, and **cannot back a `unique` constraint** — which
 our token columns need, so the decision is made for us.
 
+## Case-insensitive uniqueness: a unique index on `lower(column)`
+
+`unique` on a `text` column is case-sensitive, so `Andre` and `andre` both fit. A unique *expression* index,
+`create unique index ... on users (lower(username))`, rejects the second while the column keeps the casing the
+user typed. It replaces the plain `unique` constraint, which it makes redundant — drop that one.
+
+**The query must use the exact same expression**, or PostgreSQL can't use the index. Spring Data's derived
+`...IgnoreCase` methods always compile to `upper()` (Spring Data JPA 4.1.1, `PartTreeJpaQuery`), so write the
+query by hand with `lower()`. `EXPLAIN` on the dev database: `lower(username) = ...` is an index scan on
+`users_lower_username_key`, `upper(username) = ...` a sequential scan.
+
 ## Hashes: no salt column, no length limit
 
 BCrypt embeds the salt inside the hash string, and Spring's `PasswordEncoder` has nowhere to hand you a separate

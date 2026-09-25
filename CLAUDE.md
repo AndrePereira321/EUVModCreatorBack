@@ -8,15 +8,15 @@ commit message rules — is in the parent `../CLAUDE.md`, which loads alongside 
 Backend notes too long for this file — the reasoning behind the rules here. Convention: `../CLAUDE.md`.
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
-- [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing and hash storage for
-  Flyway migrations. Figures measured, not recalled.
+- [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing (including
+  case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not recalled.
 
 ## Commands
 
 Run these from this folder. `JAVA_HOME` is not set system-wide; the JDK is at `~/.jdks/openjdk-25`.
 
 ```bash
-./mvnw test              # contextLoads test — starts the full context, so PostgreSQL must be running
+./mvnw test              # unit + integration tests; integration tests need PostgreSQL running
 ./mvnw test-compile      # compile only, no database needed
 ./mvnw spring-boot:run   # start on http://localhost:8080
 ./mvnw clean package     # build the jar
@@ -52,7 +52,9 @@ src/main/resources/
 ├─ application-local.properties.example <- tracked template for the file above
 ├─ application-production.properties    <- env-var driven, no fallbacks
 └─ db/migration/                        <- Flyway migrations, V2026.09.08_001__snake_case.sql
-src/test/java/com/euvmodcreator/
+src/test/java/com/euvmodcreator/        <- mirrors main's packages; IntegrationTest is the base for HTTP tests
+src/test/resources/
+└─ application-test.properties          <- test profile: the `test` schema, no JWT key (generated per run)
 ```
 
 **Package by feature, then by role inside the feature.** Top-level packages are features (`auth`); inside one, the
@@ -82,8 +84,8 @@ file, they do not replace it. Neither `spring.profiles.active` nor `spring.profi
 profile-specific file — Spring rejects that at startup.
 
 `application-local.properties` is **not in git** because it holds the local JWT signing key. A fresh clone copies
-`application-local.properties.example` to it and fills in `app.jwt.secret`; until then even `./mvnw test` fails,
-since tests run on the local profile.
+`application-local.properties.example` to it and fills in `app.jwt.secret` before running the app. Tests don't
+need it: they run on the `test` profile (see Tests).
 
 `application-production.properties` deliberately has **no fallback values** (`${DATABASE_URL}`, not
 `${DATABASE_URL:jdbc:...}`). A missing env var must kill startup rather than quietly boot against localhost.
@@ -106,6 +108,34 @@ PostgreSQL 17 runs natively at `C:\Program Files\PostgreSQL\17` — no Docker an
 
 Ownership matters: since PostgreSQL 15 the `public` schema no longer grants `CREATE` to everyone, so a role that
 connects fine can still fail the first migration with `permission denied for schema public`.
+
+The role has no `CREATEDB`, which is why integration tests use a `test` **schema** inside this database rather
+than a database of their own: owning the database is enough to create a schema, and Flyway does it on first run.
+
+## Tests
+
+Two kinds, both under `./mvnw test`:
+
+- **Unit tests** — plain JUnit, no Spring context, milliseconds. Validation rules through a bare `Validator`,
+  services with Mockito mocks, error handling through a standalone `MockMvcTester`. Anything that is logic, not
+  wiring.
+- **Integration tests** — extend `IntegrationTest`, which starts the whole app on a random port and sends real HTTP
+  through `RestTestClient` (Spring Framework 7). Real Tomcat, security filters and PostgreSQL, because the bugs so
+  far lived between layers — MockMvc skips the servlet container, so it can't see e.g. the `/error` forward. Every
+  endpoint gets one: each status, each error `code`, and a database check where HTTP can't show the result.
+
+`IntegrationTest` owns the plumbing — don't repeat it in subclasses:
+
+- `@ActiveProfiles("test")` → `src/test/resources/application-test.properties`, pointing at the `test` schema, so
+  tests never touch dev data.
+- A random JWT secret per run through `@DynamicPropertySource`, so no key sits in a committed file.
+- `@BeforeEach` truncates every table in the schema except Flyway's. `@Transactional` rollback can't replace
+  this: with a real port the server commits each request on its own thread.
+- All subclasses share one started app (Spring caches the context), so a new test class costs no startup time
+  unless it changes the configuration — avoid `@MockitoBean` and extra properties in integration tests.
+
+A custom `ConstraintValidator` must be `public`: Spring can create a package-private one, plain Hibernate
+Validator can't, so it works in the app and throws `NoSuchMethodException` in a unit test.
 
 ## Decisions already made
 
@@ -137,9 +167,17 @@ Don't reopen these without a reason:
   (`method_not_allowed`). Validation failures add `errors: [{field, code, params}]`, where `code` is the constraint
   name (`Size`) and `params` its attributes (`min`, `max`). A domain error is a subclass of `ApiException` with its
   status, code and optional `params` map, sent as a top-level `params` for the translation to interpolate — data
-  only, nothing the user may not see. Not `@ResponseStatus`, which produces no code. `detail` is English for developers; never show
-  it to users, never put exception internals in it. `SecurityConfig` permits `DispatcherType.ERROR`, or Tomcat's
-  forward to `/error` turns every 4xx into a 401.
+  only, nothing the user may not see. Not `@ResponseStatus`, which produces no code. `detail` is English for
+  developers; never show it to users, never put exception internals in it. `SecurityConfig` permits
+  `DispatcherType.ERROR`, or Tomcat's forward to `/error` turns every 4xx into a 401.
+- **Usernames are unique ignoring case, and keep the casing they were registered with.** A unique index on
+  `lower(username)` enforces it, and `UserRepository.existsByUsernameIgnoreCase` is a hand-written `@Query` using
+  `lower()` — the derived-query version compiles to `upper()`, which can't use that index. Usernames are 3–32
+  characters of `[A-Za-z0-9_]`.
+- **Passwords are 8–32 characters, with no composition rules** ("must contain a digit"), per current NIST
+  guidance. `@MaxBytes(72)` guards BCrypt's input limit, which `@Size` can't: it counts characters, not bytes.
+- **Register returns 201 with the new user and does not log in.** Sessions and cookies are created by login only,
+  so the frontend calls login next.
 
 ## IntelliJ gotchas
 
