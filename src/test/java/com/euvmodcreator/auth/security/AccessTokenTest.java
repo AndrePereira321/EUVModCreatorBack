@@ -32,7 +32,7 @@ class AccessTokenTest extends IntegrationTest {
 
     @Test
     void tokenIssuedByTheAppIsAccepted() {
-        String token = tokenService.issueAccessToken(savedUser());
+        String token = tokenService.issueAccessToken(savedUser().getId());
 
         client.get().uri(PROTECTED_PATH)
                 .header("Authorization", "Bearer " + token)
@@ -51,7 +51,7 @@ class AccessTokenTest extends IntegrationTest {
                 NimbusJwtEncoder.withSecretKey(new SecretKeySpec(otherKey, "HmacSHA256")).build());
 
         client.get().uri(PROTECTED_PATH)
-                .header("Authorization", "Bearer " + forger.issueAccessToken(savedUser()))
+                .header("Authorization", "Bearer " + forger.issueAccessToken(savedUser().getId()))
                 .exchange()
                 .expectStatus().isUnauthorized();
     }

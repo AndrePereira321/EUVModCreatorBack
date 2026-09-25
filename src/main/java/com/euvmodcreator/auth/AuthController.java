@@ -43,6 +43,15 @@ public class AuthController {
                 .body(new LoginResponse(result.accessToken()));
     }
 
+    @PostMapping("/refresh")
+    ResponseEntity<LoginResponse> refresh(@CookieValue(name = REFRESH_TOKEN_COOKIE, required = false) String refreshToken) {
+        LoginResult result = authService.refresh(refreshToken);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie(result.refreshToken()).toString())
+                .body(new LoginResponse(result.accessToken()));
+    }
+
     private static ResponseCookie refreshTokenCookie(RefreshToken refreshToken) {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE, refreshToken.value())
                 .httpOnly(true)

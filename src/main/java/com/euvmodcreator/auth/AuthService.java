@@ -3,6 +3,7 @@ package com.euvmodcreator.auth;
 import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.exception.InvalidCredentialsException;
+import com.euvmodcreator.auth.exception.InvalidRefreshTokenException;
 import com.euvmodcreator.auth.exception.UsernameTakenException;
 import com.euvmodcreator.auth.model.User;
 import com.euvmodcreator.auth.model.UserAuth;
@@ -20,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -73,15 +75,40 @@ class AuthService {
 
         User user = credentials.orElseThrow().user();
         RefreshToken refreshToken = tokenService.newRefreshToken();
-        createNewUserSession(user, refreshToken);
-        
-        return new LoginResult(tokenService.issueAccessToken(user), refreshToken);
+        createNewUserSession(user.getId(), refreshToken);
+
+        return new LoginResult(tokenService.issueAccessToken(user.getId()), refreshToken);
     }
 
-    private void createNewUserSession(User user, RefreshToken refreshToken) {
+    @Transactional
+    LoginResult refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new InvalidRefreshTokenException();
+        }
+
+        UserSession userSession = userSessionRepository
+                .findByRefreshTokenHash(tokenService.hashRefreshToken(refreshToken))
+                .orElseThrow(InvalidRefreshTokenException::new);
+
+        if (userSession.getRevokedAt() != null) {
+            throw new InvalidRefreshTokenException();
+        }
+
+        Instant now = Instant.now();
+        if (!userSession.getExpiresAt().isAfter(now)) {
+            throw new InvalidRefreshTokenException();
+        }
+
+        RefreshToken newRefreshToken = tokenService.newRefreshToken(userSession.getExpiresAt());
+        userSession.setRefreshTokenHash(tokenService.hashRefreshToken(newRefreshToken.value()));
+
+        return new LoginResult(tokenService.issueAccessToken(userSession.getUserId()), newRefreshToken);
+    }
+
+    private void createNewUserSession(UUID userId, RefreshToken refreshToken) {
         UserSession userSession = new UserSession();
 
-        userSession.setUserId(user.getId());
+        userSession.setUserId(userId);
         userSession.setRefreshTokenHash(tokenService.hashRefreshToken(refreshToken.value()));
         userSession.setExpiresAt(refreshToken.expiresAt());
 

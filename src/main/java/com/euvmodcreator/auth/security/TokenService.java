@@ -1,6 +1,5 @@
 package com.euvmodcreator.auth.security;
 
-import com.euvmodcreator.auth.model.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -17,6 +16,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -28,12 +28,12 @@ public class TokenService {
 
     private final JwtEncoder jwtEncoder;
 
-    public String issueAccessToken(User user) {
-        Assert.state(user.getId() != null, "User must be saved before a token can be issued");
+    public String issueAccessToken(UUID userId) {
+        Assert.notNull(userId, "User must be saved before a token can be issued");
 
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
-                .subject(user.getId().toString())
+                .subject(userId.toString())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.accessTokenTtl()))
                 .build();
@@ -44,11 +44,15 @@ public class TokenService {
     }
 
     public RefreshToken newRefreshToken() {
+        return newRefreshToken(Instant.now().plus(properties.refreshTokenTtl()));
+    }
+
+    public RefreshToken newRefreshToken(Instant expiresAt) {
         byte[] bytes = new byte[32];
         secureRandom.nextBytes(bytes);
 
         String value = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        return new RefreshToken(value, Instant.now().plus(properties.refreshTokenTtl()));
+        return new RefreshToken(value, expiresAt);
     }
 
     public String hashRefreshToken(String token) {

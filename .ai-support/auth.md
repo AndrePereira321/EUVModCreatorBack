@@ -9,7 +9,7 @@ break by accident are repeated as one-liners in `CLAUDE.md`; this file is the re
 | ------------------------- | ------- | -------------------------------------------------------------- |
 | `POST /api/auth/register` | built   | 201 `{id, username}` — does not log in                         |
 | `POST /api/auth/login`    | built   | 200 `{accessToken}` + `refresh_token` cookie, starts a session |
-| `POST /api/auth/refresh`  | planned | rotates the refresh token, new access token                    |
+| `POST /api/auth/refresh`  | built   | 200 `{accessToken}` + rotated `refresh_token` cookie           |
 | `POST /api/auth/logout`   | planned | revokes the session, clears the cookie                         |
 
 ## JWT plus a server-side session row
@@ -38,7 +38,7 @@ site started.
 
 32 bytes from `SecureRandom` in URL-safe Base64 without padding: 43 characters, none of which a cookie parser could
 mangle. `TokenService.newRefreshToken()` returns the token with its expiry as a `RefreshToken`, so the TTL never
-leaves `security/`.
+leaves `security/`. Refresh passes the session's expiry to `newRefreshToken(Instant)` instead.
 
 The session row stores the token's **SHA-256**, as hex, never the token itself, so a leaked table or backup holds
 nothing a client could present. Not BCrypt as for passwords, for two reasons:
@@ -59,10 +59,11 @@ The token only ever travels in the `refresh_token` cookie, never in a response b
 | `Path=/api/auth`  | sent to the auth endpoints only, not with every API call                                    |
 | `Max-Age`         | computed from the session's `expires_at`, so the cookie and the row expire together         |
 
-Every login starts its own session: each device holds its own token and can be logged out on its own.
+Every login starts its own session: each device holds its own token and can be logged out on its own. Refresh swaps
+the token inside that session rather than starting another (see [Refresh](#refresh)).
 
 `AuthService.login` returns a `LoginResult`, and `AuthController` splits it: the access token goes into the
-`LoginResponse` body, the refresh token into `Set-Cookie`. They are two records rather than one with a `@JsonIgnore`d
+`LoginResponse` body, the refresh token into `Set-Cookie`. Refresh returns the same pair. They are two records rather than one with a `@JsonIgnore`d
 field, so the response type has no field a refresh token could leak through. `result/` holds what a service hands its
 controller, which is never serialized; `dto/` holds only HTTP bodies.
 
@@ -123,6 +124,46 @@ Measured on the dev machine after the fix, averaging 10 failed logins each: wron
 
 `LoginRequest` only checks `@NotBlank` and `@MaxBytes(72)`, not register's rules. Those describe *new* accounts;
 tightening them must not lock out existing ones. A username that breaks them just isn't found.
+
+## Refresh
+
+Reads the `refresh_token` cookie, hashes it, finds the session, and answers with a new access token and a new cookie.
+
+**Rotation in place.** The new token's hash replaces the old one on the same row, so the old token stops working at
+once. Not a new row per refresh, which would add a row every access-token lifetime per active user. In place, a row
+stays "one login on one device": logout revokes one row, and `updated_at` is the last refresh. The cost is reuse
+detection: the old hash is gone, so a replayed old token looks like any unknown token. If that is ever wanted, a new
+migration can add a `previous_token_hash` column.
+
+**Fixed lifetime.** A session ends `refresh-token-ttl` after login, however active the user is. Refresh never extends
+it: the rotated token takes the session's own `expires_at` (`TokenService.newRefreshToken(Instant)`), so the cookie's
+`Max-Age` shrinks with every refresh and still runs out together with the row. An access token issued just before the
+end outlives the session by up to `access-token-ttl`. Logout has the same gap, and it is accepted; capping the
+access token's expiry at the session's would close it.
+
+**One 401 `auth.invalid_refresh_token`** for a missing cookie, an unknown token, and a revoked or expired session:
+
+- The user never sees refresh fail. The frontend calls it in the background and reacts to every failure the same
+  way, by sending the user to log in.
+- "Expired" hardly ever arrives: the cookie's `Max-Age` ends when the session does, so the browser has dropped it.
+- "Revoked" would confirm to someone replaying a stolen token that it was real.
+
+`@CookieValue(required = false)` is what makes a missing cookie this 401. Without it, Spring answers 400 with
+`MissingRequestCookieException` before the service runs. If reuse detection is added, a separate "logged out for
+security reasons" code would be the one worth having.
+
+**A row lock against concurrent refreshes.** `findByRefreshTokenHash` has `@Lock(PESSIMISTIC_WRITE)`, which locks
+the row until the transaction commits. When two requests present the same token at once, the second waits, then finds
+the hash already replaced and gets the 401. Without the lock both succeed, the token has been used twice, and the
+browser may keep whichever cookie arrived last, possibly a dead one.
+`RefreshEndpointTest.sameTokenRefreshedTwiceAtOnceWorksOnlyOnce` failed 3 runs out of 3 with the lock removed.
+
+**`@Transactional` does three jobs here:**
+
+- It holds that lock.
+- It lets dirty checking write the new hash without a `save()`.
+- It rolls back on any `RuntimeException`, which includes `ApiException`. Anything written before a `throw` inside the
+  method never reaches the database, so a failed refresh can't revoke or change the session.
 
 ## Where password hashes are read
 

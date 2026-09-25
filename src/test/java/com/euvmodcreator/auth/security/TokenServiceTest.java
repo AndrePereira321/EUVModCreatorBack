@@ -1,13 +1,11 @@
 package com.euvmodcreator.auth.security;
 
-import com.euvmodcreator.auth.model.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -37,16 +35,16 @@ class TokenServiceTest {
     void issuesTokenWhoseSubjectIsTheUserId() {
         UUID id = UUID.randomUUID();
 
-        Jwt jwt = decoder.decode(tokenService.issueAccessToken(userWithId(id)));
+        Jwt jwt = decoder.decode(tokenService.issueAccessToken(id));
 
         assertThat(jwt.getSubject()).isEqualTo(id.toString());
         assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(ACCESS_TTL);
     }
 
     @Test
-    void refusesUserThatWasNeverSaved() {
-        assertThatThrownBy(() -> tokenService.issueAccessToken(new User()))
-                .isInstanceOf(IllegalStateException.class);
+    void refusesMissingUserId() {
+        assertThatThrownBy(() -> tokenService.issueAccessToken(null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // 32 random bytes in URL-safe Base64 without padding: nothing a cookie parser could mangle.
@@ -69,17 +67,22 @@ class TokenServiceTest {
         assertThat(token.expiresAt()).isBetween(before.plus(REFRESH_TTL), after.plus(REFRESH_TTL));
     }
 
+    // Refresh passes the session's expiry in, so rotating the token never extends the session.
+    @Test
+    void refreshTokenCanKeepAnExistingExpiry() {
+        Instant sessionExpiry = Instant.parse("2026-10-25T12:00:00Z");
+
+        RefreshToken token = tokenService.newRefreshToken(sessionExpiry);
+
+        assertThat(token.expiresAt()).isEqualTo(sessionExpiry);
+        assertThat(token.value()).matches("[A-Za-z0-9_-]{43}");
+    }
+
     // The published SHA-256 test vector: catches hex-encoding the input instead of hashing it, or Base64 output.
     @Test
     void hashesRefreshTokenWithSha256AsHex() {
         assertThat(tokenService.hashRefreshToken("abc"))
                 .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    }
-
-    private static User userWithId(UUID id) {
-        User user = new User();
-        ReflectionTestUtils.setField(user, "id", id);
-        return user;
     }
 
     private static SecretKey randomKey() {

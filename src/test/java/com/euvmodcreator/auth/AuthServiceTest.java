@@ -3,6 +3,7 @@ package com.euvmodcreator.auth;
 import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.exception.InvalidCredentialsException;
+import com.euvmodcreator.auth.exception.InvalidRefreshTokenException;
 import com.euvmodcreator.auth.exception.UsernameTakenException;
 import com.euvmodcreator.auth.model.User;
 import com.euvmodcreator.auth.model.UserAuth;
@@ -24,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -162,6 +164,57 @@ class AuthServiceTest {
         verifyNoInteractions(tokenService, userSessionRepository);
     }
 
+    @Test
+    void refreshRotatesTheTokenOnTheSameSessionAndKeepsItsExpiry() {
+        Instant expiresAt = Instant.now().plus(Duration.ofDays(10));
+        UserSession session = storedSession(expiresAt);
+        RefreshToken rotated = new RefreshToken("new-token", expiresAt);
+        when(tokenService.newRefreshToken(expiresAt)).thenReturn(rotated);
+        when(tokenService.hashRefreshToken("new-token")).thenReturn("hashed-new-token");
+        when(tokenService.issueAccessToken(session.getUserId())).thenReturn("access-token");
+
+        LoginResult result = authService.refresh("old-token");
+
+        assertThat(result.accessToken()).isEqualTo("access-token");
+        assertThat(result.refreshToken()).isEqualTo(rotated);
+        assertThat(session.getRefreshTokenHash()).isEqualTo("hashed-new-token");
+        assertThat(session.getExpiresAt()).isEqualTo(expiresAt);
+        assertThat(session.getRevokedAt()).isNull();
+    }
+
+    @Test
+    void refreshRejectsMissingToken() {
+        assertThatThrownBy(() -> authService.refresh(null)).isInstanceOf(InvalidRefreshTokenException.class);
+        assertThatThrownBy(() -> authService.refresh(" ")).isInstanceOf(InvalidRefreshTokenException.class);
+
+        verifyNoInteractions(tokenService, userSessionRepository);
+    }
+
+    @Test
+    void refreshRejectsUnknownToken() {
+        when(tokenService.hashRefreshToken("old-token")).thenReturn("hashed-old-token");
+        when(userSessionRepository.findByRefreshTokenHash("hashed-old-token")).thenReturn(Optional.empty());
+
+        assertRefreshRejected();
+    }
+
+    @Test
+    void refreshRejectsRevokedSession() {
+        UserSession session = storedSession(Instant.now().plus(Duration.ofDays(10)));
+        session.setRevokedAt(Instant.now().minus(Duration.ofHours(1)));
+
+        assertRefreshRejected();
+        assertThat(session.getRefreshTokenHash()).isEqualTo("hashed-old-token");
+    }
+
+    @Test
+    void refreshRejectsExpiredSession() {
+        UserSession session = storedSession(Instant.now().minusSeconds(1));
+
+        assertRefreshRejected();
+        assertThat(session.getRefreshTokenHash()).isEqualTo("hashed-old-token");
+    }
+
     private User stubSuccessfulLogin() {
         User user = new User();
         ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
@@ -171,8 +224,26 @@ class AuthServiceTest {
         when(passwordEncoder.matches("password123", REAL_HASH)).thenReturn(true);
         when(tokenService.newRefreshToken()).thenReturn(REFRESH_TOKEN);
         when(tokenService.hashRefreshToken("refresh-token")).thenReturn("hashed-refresh-token");
-        when(tokenService.issueAccessToken(user)).thenReturn("access-token");
+        when(tokenService.issueAccessToken(user.getId())).thenReturn("access-token");
         return user;
+    }
+
+    private UserSession storedSession(Instant expiresAt) {
+        UserSession session = new UserSession();
+        session.setUserId(UUID.randomUUID());
+        session.setRefreshTokenHash("hashed-old-token");
+        session.setExpiresAt(expiresAt);
+
+        when(tokenService.hashRefreshToken("old-token")).thenReturn("hashed-old-token");
+        when(userSessionRepository.findByRefreshTokenHash("hashed-old-token")).thenReturn(Optional.of(session));
+        return session;
+    }
+
+    private void assertRefreshRejected() {
+        assertThatThrownBy(() -> authService.refresh("old-token")).isInstanceOf(InvalidRefreshTokenException.class);
+
+        verify(tokenService, never()).newRefreshToken(any());
+        verify(tokenService, never()).issueAccessToken(any());
     }
 
 }

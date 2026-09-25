@@ -84,7 +84,7 @@ class LoginEndpointTest extends IntegrationTest {
                 .doesNotContain(refreshToken(result));
     }
 
-    // Refresh will look the session up by hashing the cookie, so the row must hold exactly that hash.
+    // Refresh looks the session up by hashing the cookie, so the row must hold exactly that hash.
     @Test
     void storesSessionHoldingTheHashOfTheCookieNotTheCookie() {
         UUID id = register("Andre", "password123");
