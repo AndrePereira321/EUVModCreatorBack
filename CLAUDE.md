@@ -8,6 +8,8 @@ commit message rules — is in the parent `../CLAUDE.md`, which loads alongside 
 Backend notes too long for this file — the reasoning behind the rules here. Convention: `../CLAUDE.md`.
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
+- [Auth](.ai-support/auth.md) — endpoints, the token and session design, and why login, usernames and passwords
+  work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing (including
   case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not recalled.
 
@@ -153,16 +155,7 @@ Don't reopen these without a reason:
 - **Migrations are versioned by date, not a running counter.** `V2026.09.08_001__create_users.sql`, `_002` for
   the next one that day. Versions compare numerically, so pad every part identically (`V2026.9.8_1` duplicates
   `V2026.09.08_001`) and never start a day at `_000` (trailing zero parts are stripped).
-- **Auth is JWT plus a server-side session row**, not stateless JWT and not plain session cookies. A short-lived
-  access token, and a rotatable refresh token stored *hashed* in `user_sessions` — the stored row is what keeps
-  revocation working. The refresh token travels in an `HttpOnly` cookie, never `localStorage`. Tables: `users`,
-  `user_auth` (1:1, password hash), `user_sessions`. Still open: Discord OAuth2 vs username + password, and
-  `users` has no email column, so password reset is impossible until that is settled.
-- **Access tokens go through Spring Security's resource server, not a hand-written filter.** The app signs its own
-  tokens (HS256, `NimbusJwtEncoder`) and Spring validates them; `SecurityConfig` holds both. Settings bind to
-  `JwtProperties` (`app.jwt.*`): `secret` is required (`JWT_SECRET` in production, never a default), and
-  `access-token-ttl` defaults to 15m in code. Everything outside `/api/auth/**` needs a Bearer token. The chain is
-  stateless and CSRF is off, which is only safe while the refresh cookie is `SameSite`.
+- **Auth is JWT plus a server-side session row** — see the Auth section below.
 - **CORS is Spring Web, not Spring Security.** The Vite dev server on `localhost:5173` calling `localhost:8080`
   needs a `WebMvcConfigurer` with `addCorsMappings`. The browser error reads like an auth failure and is not.
 - **Errors are RFC 9457 Problem Details carrying a `code`; the frontend translates, the backend never does.**
@@ -174,24 +167,18 @@ Don't reopen these without a reason:
   only, nothing the user may not see. Not `@ResponseStatus`, which produces no code. `detail` is English for
   developers; never show it to users, never put exception internals in it. `SecurityConfig` permits
   `DispatcherType.ERROR`, or Tomcat's forward to `/error` turns every 4xx into a 401.
-- **Usernames are unique ignoring case, and keep the casing they were registered with.** A unique index on
-  `lower(username)` enforces it, and `UserRepository.existsByUsernameIgnoreCase` is a hand-written `@Query` using
-  `lower()` — the derived-query version compiles to `upper()`, which can't use that index. Usernames are 3–32
-  characters of `[A-Za-z0-9_]`.
-- **Passwords are 8–32 characters, with no composition rules** ("must contain a digit"), per current NIST
-  guidance. `@MaxBytes(72)` guards BCrypt's input limit, which `@Size` can't: it counts characters, not bytes.
-- **Register returns 201 with the new user and does not log in.** Sessions and cookies are created by login only,
-  so the frontend calls login next.
-- **Login returns 200 with an access token, and one 401 `auth.invalid_credentials` for both an unknown username and
-  a wrong password** — two answers would tell an attacker which usernames exist. For the same reason an unknown
-  username still runs BCrypt, against a dummy hash `AuthService` encodes at startup, so both failures take the same
-  time. Never let a code path skip `matches()`: an `orElseThrow` before it, or a `||` that short-circuits it, brings
-  the timing leak back. `LoginRequest` only checks `@NotBlank` and `@MaxBytes(72)`, not register's rules — those
-  describe new accounts, and tightening them must not lock out existing ones.
-- **Password hashes are read by exactly one query**, `UserAuthRepository.findLoginCredentials`: a JPQL join of
-  `User` and `UserAuth` into the `LoginCredentials` record. `user_auth` is split from `users` so ordinary user
-  queries never carry a hash; don't add a `@OneToOne` from `User` to `UserAuth` — Hibernate can't lazy-load that
-  side, so every `User` load would pull the hash back in.
+
+## Auth
+
+A short-lived JWT access token, plus a refresh token in an `HttpOnly` cookie whose hash sits in `user_sessions`.
+The design, the endpoints and the reasoning behind every rule below are in [auth](.ai-support/auth.md) — read it
+before changing anything in `auth/`.
+
+- `app.jwt.secret` never gets a default in a committed file.
+- CSRF is off, which is only safe while the refresh cookie is `SameSite`.
+- Username lookups filter on `lower(username)` in a hand-written `@Query`; a derived `...IgnoreCase` compiles to
+  `upper()` and skips the index.
+- No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user.
 
 ## IntelliJ gotchas
 
