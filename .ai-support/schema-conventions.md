@@ -71,3 +71,8 @@ indirection breaks that.
 
 Flyway checksums the file as text, **comments included**, and refuses to start on a mismatch. Corrections are
 always a new migration, never an edit to an applied one.
+
+The one exception: **before the first production deploy**, migrations may be squashed, as the case-insensitive
+username index was folded into `V2026.09.08_001`. Every schema that already ran them — local `public` and `test` —
+must then be dropped, because Flyway also refuses an applied migration whose file no longer exists. Once a
+production database exists, this door is closed.
