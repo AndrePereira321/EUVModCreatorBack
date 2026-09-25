@@ -58,14 +58,15 @@ src/test/resources/
 ```
 
 **Package by feature, then by role inside the feature.** Top-level packages are features (`auth`); inside one, the
-controller, service and feature exceptions sit at the feature root, and the rest splits into role sub-packages:
+controller and service sit at the feature root, and the rest splits into role sub-packages:
 
 ```
 auth/
-├─ AuthController, AuthService, UsernameTakenException
+├─ AuthController, AuthService
 ├─ dto/         <- request and response records, never entities
+├─ exception/   <- the feature's ApiException subclasses
 ├─ model/       <- @Entity classes
-├─ repository/  <- Spring Data interfaces
+├─ repository/  <- Spring Data interfaces, and the records their queries return (LoginCredentials)
 └─ security/    <- SecurityConfig, JwtProperties, TokenService
 ```
 
@@ -137,6 +138,9 @@ Two kinds, both under `./mvnw test`:
 A custom `ConstraintValidator` must be `public`: Spring can create a package-private one, plain Hibernate
 Validator can't, so it works in the app and throws `NoSuchMethodException` in a unit test.
 
+Mockito's `@InjectMocks` calls the constructor but not `@PostConstruct` — only Spring does. A unit test of a bean
+with one calls it itself, as `AuthServiceTest` does with `AuthService.init()`.
+
 ## Decisions already made
 
 Don't reopen these without a reason:
@@ -178,6 +182,16 @@ Don't reopen these without a reason:
   guidance. `@MaxBytes(72)` guards BCrypt's input limit, which `@Size` can't: it counts characters, not bytes.
 - **Register returns 201 with the new user and does not log in.** Sessions and cookies are created by login only,
   so the frontend calls login next.
+- **Login returns 200 with an access token, and one 401 `auth.invalid_credentials` for both an unknown username and
+  a wrong password** — two answers would tell an attacker which usernames exist. For the same reason an unknown
+  username still runs BCrypt, against a dummy hash `AuthService` encodes at startup, so both failures take the same
+  time. Never let a code path skip `matches()`: an `orElseThrow` before it, or a `||` that short-circuits it, brings
+  the timing leak back. `LoginRequest` only checks `@NotBlank` and `@MaxBytes(72)`, not register's rules — those
+  describe new accounts, and tightening them must not lock out existing ones.
+- **Password hashes are read by exactly one query**, `UserAuthRepository.findLoginCredentials`: a JPQL join of
+  `User` and `UserAuth` into the `LoginCredentials` record. `user_auth` is split from `users` so ordinary user
+  queries never carry a hash; don't add a `@OneToOne` from `User` to `UserAuth` — Hibernate can't lazy-load that
+  side, so every `User` load would pull the hash back in.
 
 ## IntelliJ gotchas
 

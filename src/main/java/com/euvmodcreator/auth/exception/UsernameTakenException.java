@@ -1,11 +1,11 @@
-package com.euvmodcreator.auth;
+package com.euvmodcreator.auth.exception;
 
 import com.euvmodcreator.error.ApiException;
 import org.springframework.http.HttpStatus;
 
-class UsernameTakenException extends ApiException {
+public class UsernameTakenException extends ApiException {
 
-    UsernameTakenException() {
+    public UsernameTakenException() {
         super(HttpStatus.CONFLICT, "auth.username_taken", "Username is already taken");
     }
 

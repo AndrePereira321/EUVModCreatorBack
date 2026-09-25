@@ -1,5 +1,7 @@
 package com.euvmodcreator.auth;
 
+import com.euvmodcreator.auth.dto.LoginRequest;
+import com.euvmodcreator.auth.dto.LoginResponse;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
 import com.euvmodcreator.auth.model.User;
@@ -20,6 +22,12 @@ public class AuthController {
     RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
         User registeredUser = authService.register(request);
         return RegisterResponse.from(registeredUser);
+    }
+
+    @PostMapping("/login")
+    LoginResponse login(@Valid @RequestBody LoginRequest loginRequest) {
+        String accessToken = authService.login(loginRequest);
+        return new LoginResponse(accessToken);
     }
 
 }
