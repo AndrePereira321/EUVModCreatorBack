@@ -159,8 +159,11 @@ Don't reopen these without a reason:
   the next one that day. Versions compare numerically, so pad every part identically (`V2026.9.8_1` duplicates
   `V2026.09.08_001`) and never start a day at `_000` (trailing zero parts are stripped).
 - **Auth is JWT plus a server-side session row** — see the Auth section below.
-- **CORS is Spring Web, not Spring Security.** The Vite dev server on `localhost:5173` calling `localhost:8080`
-  needs `addCorsMappings` in `WebConfig`. The browser error reads like an auth failure and is not.
+- **CORS rules live in Spring Web (`WebConfig.addCorsMappings`), and Spring Security applies them** through
+  `.cors(withDefaults())`. It must: a preflight carries no token, so without it Security answers the preflight with
+  a 401. Origins come from `web.cors.allowed-origins` (`CORS_ALLOWED_ORIGINS` in production), never `*`, since
+  requests carry credentials. An empty list is the off switch and rejects every cross-origin request with a 403.
+  The browser's CORS error reads like an auth failure and is not.
 - **Every `@RestController` sits under `/api`, added once by `WebConfig.configurePathMatch`.** Controllers map
   without it (`@RequestMapping("/auth")`). What sees the raw URL still writes it: `SecurityConfig`'s matchers, the
   cookie path, and the tests. Not `server.servlet.context-path`, which would move `/error` and everything else too.

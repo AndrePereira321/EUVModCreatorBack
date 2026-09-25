@@ -266,9 +266,9 @@ Not built yet. What the backend expects of it:
   only the first through (`RefreshEndpointTest.sameTokenRefreshedTwiceAtOnceWorksOnlyOnce`), and the rest would log
   the user out.
 - The Vite dev server on `localhost:5173` is the same site as the API on `localhost:8080` but a different origin, so
-  fetch needs `credentials: 'include'`, and CORS needs `allowCredentials(true)` with an explicit origin. Without both,
-  the browser ignores the cookie. Check then that the `Secure` cookie survives plain `http://localhost` in the
-  browsers used for development.
+  fetch needs `credentials: 'include'`. The backend half is built: `WebConfig` allows the origins in
+  `web.cors.allowed-origins` with credentials. Without both, the browser ignores the cookie. Check then that the
+  `Secure` cookie survives plain `http://localhost` in the browsers used for development.
 
 ## Where password hashes are read
 
@@ -288,7 +288,8 @@ hold the foreign key (without bytecode enhancement), so every `User` load would 
   - XSS discipline and a Content-Security-Policy in the frontend. `HttpOnly` stops a script stealing the refresh
     cookie, not using it: injected code can call `/refresh` itself while the tab is open.
   - HTTPS everywhere, and the frontend and the API on the same site (`app.example.com`, `api.example.com`). The
-    browser never sends a `SameSite=Strict` cookie across sites, and `SameSite=None` would bring CSRF back.
+    browser never sends a `SameSite=Strict` cookie across sites, and `SameSite=None` would bring CSRF back. Set
+    `CORS_ALLOWED_ORIGINS` to the frontend's origin, or empty if the API serves the frontend itself.
   - A `JWT_SECRET` of 32 random bytes: whoever holds it can sign a token for any user. Changing it only invalidates
     access tokens, and clients refresh silently.
 - **Later:** "log out everywhere", a cleanup job for expired and revoked sessions, a Have I Been Pwned check on new
