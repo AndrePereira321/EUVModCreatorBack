@@ -5,7 +5,8 @@ import jakarta.validation.ConstraintValidatorContext;
 
 import java.nio.charset.StandardCharsets;
 
-class MaxBytesValidator implements ConstraintValidator<MaxBytes, CharSequence> {
+// Public because Hibernate Validator, outside Spring, instantiates validators through their public constructor.
+public class MaxBytesValidator implements ConstraintValidator<MaxBytes, CharSequence> {
 
     private int maxBytes;
 
