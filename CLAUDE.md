@@ -27,16 +27,17 @@ normally runs the app from IntelliJ rather than the terminal.
 
 ## Stack
 
-Java 25 · Spring Boot 4.1.1 (Spring Framework 7) · Maven wrapper 3.9.16 · PostgreSQL 17 · Flyway 12 · Hibernate 7
-· Lombok.
+Java 25 · Spring Boot 4.1.1 (Spring Framework 7) · Spring Security 7 · Maven wrapper 3.9.16 · PostgreSQL 17 ·
+Flyway 12 · Hibernate 7 · Lombok.
 
 **Spring Boot 4 renamed the starters, and everything written online still uses the Boot 3 names.** Do not "fix"
 the pom to match a tutorial:
 
-| in this pom (Boot 4)                | what tutorials say (Boot 3)  |
-| ----------------------------------- | ---------------------------- |
-| `spring-boot-starter-webmvc`        | `spring-boot-starter-web`    |
-| `spring-boot-starter-<module>-test` | `spring-boot-starter-test`   |
+| in this pom (Boot 4)                                  | what tutorials say (Boot 3)                  |
+| ----------------------------------------------------- | -------------------------------------------- |
+| `spring-boot-starter-webmvc`                          | `spring-boot-starter-web`                    |
+| `spring-boot-starter-security-oauth2-resource-server` | `spring-boot-starter-oauth2-resource-server` |
+| `spring-boot-starter-<module>-test`                   | `spring-boot-starter-test`                   |
 
 Follow the parent file's Context7 rule before writing non-trivial Spring code, and check `pom.xml` for the
 versions actually in use — Boot 4 and Framework 7 are past my training data.
@@ -44,12 +45,13 @@ versions actually in use — Boot 4 and Framework 7 are past my training data.
 ## Layout
 
 ```
-src/main/java/com/euvmodcreator/       <- all Java; EuvModCreatorBackApplication is the entry point
+src/main/java/com/euvmodcreator/        <- all Java; EuvModCreatorBackApplication is the entry point
 src/main/resources/
-├─ application.properties              <- shared config, always loaded
-├─ application-local.properties        <- local datasource
-├─ application-production.properties   <- env-var driven, no fallbacks
-└─ db/migration/                       <- Flyway migrations, V2026.09.08_001__snake_case.sql; empty so far
+├─ application.properties               <- shared config, always loaded
+├─ application-local.properties         <- git-ignored: local datasource, dev JWT signing key
+├─ application-local.properties.example <- tracked template for the file above
+├─ application-production.properties    <- env-var driven, no fallbacks
+└─ db/migration/                        <- Flyway migrations, V2026.09.08_001__snake_case.sql
 src/test/java/com/euvmodcreator/
 ```
 
@@ -61,6 +63,10 @@ Flat by design — no `controller/`, `service/`, `repository/` packages until th
 it; production activates explicitly with `SPRING_PROFILES_ACTIVE=production`. Profile files **override** the base
 file, they do not replace it. Neither `spring.profiles.active` nor `spring.profiles.default` may appear inside a
 profile-specific file — Spring rejects that at startup.
+
+`application-local.properties` is **not in git** because it holds the local JWT signing key. A fresh clone copies
+`application-local.properties.example` to it and fills in `app.jwt.secret`; until then even `./mvnw test` fails,
+since tests run on the local profile.
 
 `application-production.properties` deliberately has **no fallback values** (`${DATABASE_URL}`, not
 `${DATABASE_URL:jdbc:...}`). A missing env var must kill startup rather than quietly boot against localhost.
@@ -84,9 +90,6 @@ PostgreSQL 17 runs natively at `C:\Program Files\PostgreSQL\17` — no Docker an
 Ownership matters: since PostgreSQL 15 the `public` schema no longer grants `CREATE` to everyone, so a role that
 connects fine can still fail the first migration with `permission denied for schema public`.
 
-`No migrations found. Are your locations set up correctly?` on startup is expected until the first migration file
-exists.
-
 ## Decisions already made
 
 Don't reopen these without a reason:
@@ -102,9 +105,13 @@ Don't reopen these without a reason:
 - **Auth is JWT plus a server-side session row**, not stateless JWT and not plain session cookies. A short-lived
   access token, and a rotatable refresh token stored *hashed* in `user_sessions` — the stored row is what keeps
   revocation working. The refresh token travels in an `HttpOnly` cookie, never `localStorage`. Tables: `users`,
-  `user_auth` (1:1, password hash), `user_sessions`. Spring Security is not a dependency yet — adding it locks
-  every endpoint behind a generated password immediately. Still open: Discord OAuth2 vs username + password, and
+  `user_auth` (1:1, password hash), `user_sessions`. Still open: Discord OAuth2 vs username + password, and
   `users` has no email column, so password reset is impossible until that is settled.
+- **Access tokens go through Spring Security's resource server, not a hand-written filter.** The app signs its own
+  tokens (HS256, `NimbusJwtEncoder`) and Spring validates them; `SecurityConfig` holds both. Settings bind to
+  `JwtProperties` (`app.jwt.*`): `secret` is required (`JWT_SECRET` in production, never a default), and
+  `access-token-ttl` defaults to 15m in code. Everything outside `/api/auth/**` needs a Bearer token. The chain is
+  stateless and CSRF is off, which is only safe while the refresh cookie is `SameSite`.
 - **CORS is Spring Web, not Spring Security.** The Vite dev server on `localhost:5173` calling `localhost:8080`
   needs a `WebMvcConfigurer` with `addCorsMappings`. The browser error reads like an auth failure and is not.
 
