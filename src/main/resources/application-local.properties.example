@@ -1,0 +1,9 @@
+# Copy to application-local.properties (git-ignored) and fill in the values.
+
+spring.datasource.url=jdbc:postgresql://localhost:5432/euvmodcreator
+spring.datasource.username=euvmodcreator
+spring.datasource.password=euvmodcreator
+
+# --- JWT ---
+# Base64 of at least 32 random bytes: openssl rand -base64 32
+app.jwt.secret=

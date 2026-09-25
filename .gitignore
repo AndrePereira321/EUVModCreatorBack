@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local config ###
+# Holds per-machine secrets; copy application-local.properties.example to create it.
+src/main/resources/application-local.properties
