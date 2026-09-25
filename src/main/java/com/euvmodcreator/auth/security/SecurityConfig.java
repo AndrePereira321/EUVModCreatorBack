@@ -22,13 +22,13 @@ import javax.crypto.spec.SecretKeySpec;
 import java.util.Base64;
 
 @Configuration
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties(AuthProperties.class)
 public class SecurityConfig {
 
     private final SecretKey jwtKey;
 
-    SecurityConfig(JwtProperties jwtProperties) {
-        this.jwtKey = new SecretKeySpec(Base64.getDecoder().decode(jwtProperties.secret()), "HmacSHA256");
+    SecurityConfig(AuthProperties authProperties) {
+        this.jwtKey = new SecretKeySpec(Base64.getDecoder().decode(authProperties.secret()), "HmacSHA256");
     }
 
     @Bean

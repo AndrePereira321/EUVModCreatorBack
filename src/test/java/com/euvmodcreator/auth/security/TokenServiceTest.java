@@ -13,6 +13,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,12 +22,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TokenServiceTest {
 
-    private static final Duration TTL = Duration.ofMinutes(15);
+    private static final Duration ACCESS_TTL = Duration.ofMinutes(15);
+
+    private static final Duration REFRESH_TTL = Duration.ofDays(30);
 
     private final SecretKey key = randomKey();
 
     private final TokenService tokenService = new TokenService(
-            new JwtProperties("unused", TTL), NimbusJwtEncoder.withSecretKey(key).build());
+            new AuthProperties("unused", ACCESS_TTL, REFRESH_TTL), NimbusJwtEncoder.withSecretKey(key).build());
 
     private final JwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
 
@@ -36,13 +40,40 @@ class TokenServiceTest {
         Jwt jwt = decoder.decode(tokenService.issueAccessToken(userWithId(id)));
 
         assertThat(jwt.getSubject()).isEqualTo(id.toString());
-        assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(TTL);
+        assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(ACCESS_TTL);
     }
 
     @Test
     void refusesUserThatWasNeverSaved() {
         assertThatThrownBy(() -> tokenService.issueAccessToken(new User()))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    // 32 random bytes in URL-safe Base64 without padding: nothing a cookie parser could mangle.
+    @Test
+    void refreshTokenIs32RandomBytesInUrlSafeBase64() {
+        String first = tokenService.newRefreshToken().value();
+        String second = tokenService.newRefreshToken().value();
+
+        assertThat(first).matches("[A-Za-z0-9_-]{43}");
+        assertThat(Base64.getUrlDecoder().decode(first)).hasSize(32);
+        assertThat(second).isNotEqualTo(first);
+    }
+
+    @Test
+    void refreshTokenExpiresAfterTheConfiguredTtl() {
+        Instant before = Instant.now();
+        RefreshToken token = tokenService.newRefreshToken();
+        Instant after = Instant.now();
+
+        assertThat(token.expiresAt()).isBetween(before.plus(REFRESH_TTL), after.plus(REFRESH_TTL));
+    }
+
+    // The published SHA-256 test vector: catches hex-encoding the input instead of hashing it, or Base64 output.
+    @Test
+    void hashesRefreshTokenWithSha256AsHex() {
+        assertThat(tokenService.hashRefreshToken("abc"))
+                .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
     private static User userWithId(UUID id) {

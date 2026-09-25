@@ -57,6 +57,9 @@ query by hand with `lower()`. `EXPLAIN` on the dev database: `lower(username) = 
 BCrypt embeds the salt inside the hash string, and Spring's `PasswordEncoder` has nowhere to hand you a separate
 one. A `salt` column can only be filled by hand-rolled hashing.
 
+Refresh-token hashes are unsalted SHA-256 on purpose: the token is random already, and the hash must come out the same
+every time so the session can be looked up by it — see [auth](auth.md#refresh-tokens).
+
 Don't constrain the length either. `BCryptPasswordEncoder` returns 60 characters, but the recommended
 `createDelegatingPasswordEncoder()` prefixes `{bcrypt}` for 68, and Argon2 runs to about 97. That prefix records
 which algorithm produced each hash, which is what lets old hashes keep verifying after a change.

@@ -8,11 +8,15 @@ import org.springframework.validation.annotation.Validated;
 import java.time.Duration;
 
 @Validated
-@ConfigurationProperties("app.jwt")
-record JwtProperties(
+@ConfigurationProperties("auth.jwt")
+record AuthProperties(
         @NotBlank
         String secret,
 
         @DefaultValue("15m")
-        Duration accessTokenTtl
-) {}
+        Duration accessTokenTtl,
+
+        @DefaultValue("30d")
+        Duration refreshTokenTtl
+) {
+}

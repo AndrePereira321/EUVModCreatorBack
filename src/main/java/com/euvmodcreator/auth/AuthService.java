@@ -6,9 +6,13 @@ import com.euvmodcreator.auth.exception.InvalidCredentialsException;
 import com.euvmodcreator.auth.exception.UsernameTakenException;
 import com.euvmodcreator.auth.model.User;
 import com.euvmodcreator.auth.model.UserAuth;
+import com.euvmodcreator.auth.model.UserSession;
 import com.euvmodcreator.auth.repository.LoginCredentials;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
+import com.euvmodcreator.auth.repository.UserSessionRepository;
+import com.euvmodcreator.auth.result.LoginResult;
+import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +30,8 @@ class AuthService {
     private final UserRepository userRepository;
 
     private final UserAuthRepository userAuthRepository;
+
+    private final UserSessionRepository userSessionRepository;
 
     private final PasswordEncoder passwordEncoder;
 
@@ -57,7 +63,7 @@ class AuthService {
         return savedUser;
     }
 
-    String login(LoginRequest request) {
+    LoginResult login(LoginRequest request) {
         Optional<LoginCredentials> credentials =
                 userAuthRepository.findLoginCredentials(request.username());
 
@@ -65,9 +71,23 @@ class AuthService {
             throw new InvalidCredentialsException();
         }
 
-        return tokenService.issueAccessToken(credentials.orElseThrow().user());
+        User user = credentials.orElseThrow().user();
+        RefreshToken refreshToken = tokenService.newRefreshToken();
+        createNewUserSession(user, refreshToken);
+        
+        return new LoginResult(tokenService.issueAccessToken(user), refreshToken);
     }
-    
+
+    private void createNewUserSession(User user, RefreshToken refreshToken) {
+        UserSession userSession = new UserSession();
+
+        userSession.setUserId(user.getId());
+        userSession.setRefreshTokenHash(tokenService.hashRefreshToken(refreshToken.value()));
+        userSession.setExpiresAt(refreshToken.expiresAt());
+
+        userSessionRepository.save(userSession);
+    }
+
     private boolean passwordMatches(String password, Optional<LoginCredentials> credentials) {
         String hash = credentials.map(LoginCredentials::passwordHash).orElse(dummyHash);
         boolean matches = passwordEncoder.matches(password, hash);   // always runs

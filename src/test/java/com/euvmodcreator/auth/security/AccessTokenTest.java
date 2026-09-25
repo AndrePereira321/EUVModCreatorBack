@@ -47,7 +47,7 @@ class AccessTokenTest extends IntegrationTest {
         byte[] otherKey = new byte[32];
         new SecureRandom().nextBytes(otherKey);
         TokenService forger = new TokenService(
-                new JwtProperties("unused", Duration.ofMinutes(15)),
+                new AuthProperties("unused", Duration.ofMinutes(15), Duration.ofDays(30)),
                 NimbusJwtEncoder.withSecretKey(new SecretKeySpec(otherKey, "HmacSHA256")).build());
 
         client.get().uri(PROTECTED_PATH)

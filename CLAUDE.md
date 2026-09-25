@@ -8,8 +8,8 @@ commit message rules — is in the parent `../CLAUDE.md`, which loads alongside 
 Backend notes too long for this file — the reasoning behind the rules here. Convention: `../CLAUDE.md`.
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
-- [Auth](.ai-support/auth.md) — endpoints, the token and session design, and why login, usernames and passwords
-  work the way they do.
+- [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, and why login, usernames and
+  passwords work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing (including
   case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not recalled.
 
@@ -69,11 +69,12 @@ auth/
 ├─ exception/   <- the feature's ApiException subclasses
 ├─ model/       <- @Entity classes
 ├─ repository/  <- Spring Data interfaces, and the records their queries return (LoginCredentials)
-└─ security/    <- SecurityConfig, JwtProperties, TokenService
+├─ result/      <- records a service hands its controller, never serialized (LoginResult)
+└─ security/    <- SecurityConfig, AuthProperties, TokenService
 ```
 
 Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
-whatever stays in one folder (`AuthService`, `JwtProperties`). No project-wide `controller/` or `service/` packages.
+whatever stays in one folder (`AuthService`, `AuthProperties`). No project-wide `controller/` or `service/` packages.
 Code every feature shares gets its own top-level package instead: `error/` (API error handling), `validation/`
 (custom Bean Validation constraints), `database/` (`BaseEntity`).
 After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
@@ -87,7 +88,7 @@ file, they do not replace it. Neither `spring.profiles.active` nor `spring.profi
 profile-specific file — Spring rejects that at startup.
 
 `application-local.properties` is **not in git** because it holds the local JWT signing key. A fresh clone copies
-`application-local.properties.example` to it and fills in `app.jwt.secret` before running the app. Tests don't
+`application-local.properties.example` to it and fills in `auth.jwt.secret` before running the app. Tests don't
 need it: they run on the `test` profile (see Tests).
 
 `application-production.properties` deliberately has **no fallback values** (`${DATABASE_URL}`, not
@@ -174,7 +175,7 @@ A short-lived JWT access token, plus a refresh token in an `HttpOnly` cookie who
 The design, the endpoints and the reasoning behind every rule below are in [auth](.ai-support/auth.md) — read it
 before changing anything in `auth/`.
 
-- `app.jwt.secret` never gets a default in a committed file.
+- `auth.jwt.secret` never gets a default in a committed file.
 - CSRF is off, which is only safe while the refresh cookie is `SameSite`.
 - Username lookups filter on `lower(username)` in a hand-written `@Query`; a derived `...IgnoreCase` compiles to
   `upper()` and skips the index.

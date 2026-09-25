@@ -5,6 +5,7 @@ import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
+import com.euvmodcreator.auth.repository.UserSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,9 @@ class RegisterEndpointTest extends IntegrationTest {
 
     @Autowired
     private UserAuthRepository userAuthRepository;
+
+    @Autowired
+    private UserSessionRepository userSessionRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -44,6 +48,16 @@ class RegisterEndpointTest extends IntegrationTest {
             assertThat(auth.getPasswordHash()).startsWith("{bcrypt}");
             assertThat(passwordEncoder.matches("password123", auth.getPasswordHash())).isTrue();
         });
+    }
+
+    // Sessions start at login only; the frontend calls login right after register.
+    @Test
+    void registerDoesNotLogIn() {
+        register("Andre", "password123")
+                .expectStatus().isCreated()
+                .expectCookie().doesNotExist("refresh_token");
+
+        assertThat(userSessionRepository.count()).isZero();
     }
 
     @Test

@@ -34,7 +34,7 @@ public abstract class IntegrationTest {
 
     @DynamicPropertySource
     static void jwtSecret(DynamicPropertyRegistry registry) {
-        registry.add("app.jwt.secret", () -> JWT_SECRET);
+        registry.add("auth.jwt.secret", () -> JWT_SECRET);
     }
 
     // The server commits each request in its own transaction, so a @Transactional test could not roll it back.

@@ -10,13 +10,21 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.HexFormat;
 
 @Service
 @RequiredArgsConstructor
 public class TokenService {
 
-    private final JwtProperties properties;
+    private static final SecureRandom secureRandom = new SecureRandom();
+
+    private final AuthProperties properties;
 
     private final JwtEncoder jwtEncoder;
 
@@ -35,4 +43,20 @@ public class TokenService {
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
     }
 
+    public RefreshToken newRefreshToken() {
+        byte[] bytes = new byte[32];
+        secureRandom.nextBytes(bytes);
+
+        String value = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        return new RefreshToken(value, Instant.now().plus(properties.refreshTokenTtl()));
+    }
+
+    public String hashRefreshToken(String token) {
+        try {
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(sha256.digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Every JDK is required to support SHA-256", e);
+        }
+    }
 }

@@ -6,9 +6,13 @@ import com.euvmodcreator.auth.exception.InvalidCredentialsException;
 import com.euvmodcreator.auth.exception.UsernameTakenException;
 import com.euvmodcreator.auth.model.User;
 import com.euvmodcreator.auth.model.UserAuth;
+import com.euvmodcreator.auth.model.UserSession;
 import com.euvmodcreator.auth.repository.LoginCredentials;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
+import com.euvmodcreator.auth.repository.UserSessionRepository;
+import com.euvmodcreator.auth.result.LoginResult;
+import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,11 +45,17 @@ class AuthServiceTest {
 
     private static final String REAL_HASH = "{bcrypt}real";
 
+    private static final RefreshToken REFRESH_TOKEN =
+            new RefreshToken("refresh-token", Instant.parse("2026-10-25T12:00:00Z"));
+
     @Mock
     private UserRepository userRepository;
 
     @Mock
     private UserAuthRepository userAuthRepository;
+
+    @Mock
+    private UserSessionRepository userSessionRepository;
 
     @Mock
     private PasswordEncoder passwordEncoder;
@@ -97,14 +108,26 @@ class AuthServiceTest {
     }
 
     @Test
-    void loginIssuesTokenForMatchingPassword() {
-        User user = new User();
-        when(userAuthRepository.findLoginCredentials("andre"))
-                .thenReturn(Optional.of(new LoginCredentials(user, REAL_HASH)));
-        when(passwordEncoder.matches("password123", REAL_HASH)).thenReturn(true);
-        when(tokenService.issueAccessToken(user)).thenReturn("token");
+    void loginReturnsAccessTokenAndRefreshToken() {
+        stubSuccessfulLogin();
 
-        assertThat(authService.login(LOGIN)).isEqualTo("token");
+        LoginResult result = authService.login(LOGIN);
+
+        assertThat(result.accessToken()).isEqualTo("access-token");
+        assertThat(result.refreshToken()).isEqualTo(REFRESH_TOKEN);
+    }
+
+    @Test
+    void loginSavesSessionHoldingTheTokenHashNotTheToken() {
+        User user = stubSuccessfulLogin();
+
+        authService.login(LOGIN);
+
+        ArgumentCaptor<UserSession> savedSession = ArgumentCaptor.forClass(UserSession.class);
+        verify(userSessionRepository).save(savedSession.capture());
+        assertThat(savedSession.getValue().getUserId()).isEqualTo(user.getId());
+        assertThat(savedSession.getValue().getRefreshTokenHash()).isEqualTo("hashed-refresh-token");
+        assertThat(savedSession.getValue().getExpiresAt()).isEqualTo(REFRESH_TOKEN.expiresAt());
     }
 
     @Test
@@ -115,7 +138,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
 
-        verifyNoInteractions(tokenService);
+        verifyNoInteractions(tokenService, userSessionRepository);
     }
 
     @Test
@@ -126,7 +149,7 @@ class AuthServiceTest {
 
         // Against the dummy hash: the same BCrypt cost as a wrong password, so timing can't reveal the difference.
         verify(passwordEncoder).matches("password123", DUMMY_HASH);
-        verifyNoInteractions(tokenService);
+        verifyNoInteractions(tokenService, userSessionRepository);
     }
 
     @Test
@@ -136,7 +159,20 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
 
-        verifyNoInteractions(tokenService);
+        verifyNoInteractions(tokenService, userSessionRepository);
+    }
+
+    private User stubSuccessfulLogin() {
+        User user = new User();
+        ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
+
+        when(userAuthRepository.findLoginCredentials("andre"))
+                .thenReturn(Optional.of(new LoginCredentials(user, REAL_HASH)));
+        when(passwordEncoder.matches("password123", REAL_HASH)).thenReturn(true);
+        when(tokenService.newRefreshToken()).thenReturn(REFRESH_TOKEN);
+        when(tokenService.hashRefreshToken("refresh-token")).thenReturn("hashed-refresh-token");
+        when(tokenService.issueAccessToken(user)).thenReturn("access-token");
+        return user;
     }
 
 }

@@ -5,12 +5,12 @@ break by accident are repeated as one-liners in `CLAUDE.md`; this file is the re
 
 ## Endpoints
 
-| endpoint                  | status        | returns                                              |
-| ------------------------- | ------------- | ---------------------------------------------------- |
-| `POST /api/auth/register` | built         | 201 `{id, username}` — does not log in               |
-| `POST /api/auth/login`    | built         | 200 `{accessToken}` — no session or cookie yet       |
-| `POST /api/auth/refresh`  | planned       | rotates the refresh token, new access token          |
-| `POST /api/auth/logout`   | planned       | revokes the session, clears the cookie               |
+| endpoint                  | status  | returns                                                        |
+| ------------------------- | ------- | -------------------------------------------------------------- |
+| `POST /api/auth/register` | built   | 201 `{id, username}` — does not log in                         |
+| `POST /api/auth/login`    | built   | 200 `{accessToken}` + `refresh_token` cookie, starts a session |
+| `POST /api/auth/refresh`  | planned | rotates the refresh token, new access token                    |
+| `POST /api/auth/logout`   | planned | revokes the session, clears the cookie                         |
 
 ## JWT plus a server-side session row
 
@@ -27,12 +27,53 @@ Spring Security's OAuth2 resource server validates them, not a hand-written filt
 (HS256, `NimbusJwtEncoder`, in `TokenService`) and Spring validates them; `SecurityConfig` holds the encoder and the
 decoder. The subject (`sub`) is the user id.
 
-Settings bind to `JwtProperties` (`app.jwt.*`): `secret` is required — `JWT_SECRET` in production, never a default
-in any committed file — and `access-token-ttl` defaults to 15m in code.
+Settings bind to `AuthProperties` (`auth.jwt.*`): `secret` is required — `JWT_SECRET` in production, never a default
+in any committed file — `access-token-ttl` defaults to 15m and `refresh-token-ttl` to 30d, both in code.
 
 Everything outside `/api/auth/**` needs a Bearer token. The filter chain is stateless and CSRF protection is off,
 which is only safe while the refresh cookie is `SameSite`: the browser then never attaches it to a request another
 site started.
+
+## Refresh tokens
+
+32 bytes from `SecureRandom` in URL-safe Base64 without padding: 43 characters, none of which a cookie parser could
+mangle. `TokenService.newRefreshToken()` returns the token with its expiry as a `RefreshToken`, so the TTL never
+leaves `security/`.
+
+The session row stores the token's **SHA-256**, as hex, never the token itself, so a leaked table or backup holds
+nothing a client could present. Not BCrypt as for passwords, for two reasons:
+
+- BCrypt's slowness protects guessable input, and 256 random bits can't be guessed anyway.
+- Its random salt makes the same token hash differently every time. Refresh has to find the session by hashing the
+  cookie again and looking the result up through the unique index on `refresh_token_hash`.
+
+`TokenServiceTest` pins the output to the published SHA-256 test vector.
+
+The token only ever travels in the `refresh_token` cookie, never in a response body:
+
+| attribute         | why                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `HttpOnly`        | JavaScript can't read it, so an XSS bug can't steal it                                      |
+| `Secure`          | HTTPS only                                                                                  |
+| `SameSite=Strict` | never attached to a request another site started, which is what lets CSRF protection be off |
+| `Path=/api/auth`  | sent to the auth endpoints only, not with every API call                                    |
+| `Max-Age`         | computed from the session's `expires_at`, so the cookie and the row expire together         |
+
+Every login starts its own session: each device holds its own token and can be logged out on its own.
+
+`AuthService.login` returns a `LoginResult`, and `AuthController` splits it: the access token goes into the
+`LoginResponse` body, the refresh token into `Set-Cookie`. They are two records rather than one with a `@JsonIgnore`d
+field, so the response type has no field a refresh token could leak through. `result/` holds what a service hands its
+controller, which is never serialized; `dto/` holds only HTTP bodies.
+
+**Not built yet: the frontend side.** The Vite dev server on `localhost:5173` is the same site as the API on
+`localhost:8080` but a different origin, so:
+
+- fetch needs `credentials: 'include'`;
+- CORS needs `allowCredentials(true)` with an explicit origin.
+
+Without both, the browser ignores the cookie. Also check then that the `Secure` cookie survives plain
+`http://localhost` in the browsers used for development.
 
 ## Usernames
 
@@ -62,6 +103,9 @@ Hashes come from the delegating `PasswordEncoder`, prefixed `{bcrypt}`; see
 next. A taken username is 409 `auth.username_taken` — that necessarily reveals the name exists.
 
 ## Login
+
+Success returns the access token and starts a session (see [Refresh tokens](#refresh-tokens)). Failure writes nothing
+and sets no cookie.
 
 One 401 `auth.invalid_credentials` for both an unknown username and a wrong password. Two different answers would
 tell an attacker which usernames exist, so they could spend their guesses only on real accounts. (Register's 409
