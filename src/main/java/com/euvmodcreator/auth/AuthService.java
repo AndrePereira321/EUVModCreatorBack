@@ -19,6 +19,8 @@ import com.euvmodcreator.ratelimit.Lockout;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.resilience.annotation.ConcurrencyLimit;
+import org.springframework.resilience.annotation.ConcurrencyLimit.ThrottlePolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,6 +56,7 @@ class AuthService {
         this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
+    @ConcurrencyLimit(limitString = "${euv-app.auth.rate-limit.register-concurrency:2}", policy = ThrottlePolicy.REJECT)
     User register(RegisterRequest registerRequest) {
         boolean userExists = userRepository.existsByUsernameIgnoreCase(registerRequest.username());
         if (userExists) {
@@ -65,6 +68,7 @@ class AuthService {
         return transactionOperations.execute(status -> saveNewUser(registerRequest.username(), passwordHash));
     }
 
+    @ConcurrencyLimit(limitString = "${euv-app.auth.rate-limit.login-concurrency:16}", policy = ThrottlePolicy.REJECT)
     AuthResult login(LoginRequest request, String oldRefreshToken) {
         String lockoutKey = request.username().toLowerCase(Locale.ROOT);
         loginLockout.consume(lockoutKey);
@@ -83,7 +87,10 @@ class AuthService {
         RefreshToken refreshToken = tokenService.newRefreshToken();
         UserSession userSession = createNewUserSession(user.getId(), refreshToken);
 
-        return new AuthResult(tokenService.issueAccessToken(user.getId(), userSession.getId()), refreshToken);
+        String accessToken = tokenService.issueAccessToken(
+                user.getId(), userSession.getId(), userSession.getExpiresAt()
+        );
+        return new AuthResult(accessToken, refreshToken);
     }
 
     @Transactional
@@ -108,7 +115,10 @@ class AuthService {
         RefreshToken newRefreshToken = tokenService.newRefreshToken(userSession.getExpiresAt());
         userSession.setRefreshTokenHash(tokenService.hashRefreshToken(newRefreshToken.value()));
 
-        return new AuthResult(tokenService.issueAccessToken(userSession.getUserId(), userSession.getId()), newRefreshToken);
+        String accessToken = tokenService.issueAccessToken(
+                userSession.getUserId(), userSession.getId(), userSession.getExpiresAt()
+        );
+        return new AuthResult(accessToken, newRefreshToken);
     }
 
     @Transactional

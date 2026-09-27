@@ -46,7 +46,7 @@ class SessionCleanupSettingsTest {
 
     @Test
     void cronCanBeChanged() {
-        contextRunner.withPropertyValues("auth.session-cleanup.cron=0 0 3 * * SUN")
+        contextRunner.withPropertyValues("euv-app.auth.session-cleanup.cron=0 0 3 * * SUN")
                 .run(context -> assertThat(cronTasks(context))
                         .extracting(CronTask::getExpression)
                         .containsExactly("0 0 3 * * SUN"));
@@ -54,14 +54,14 @@ class SessionCleanupSettingsTest {
 
     @Test
     void dashSwitchesTheCronOff() {
-        contextRunner.withPropertyValues("auth.session-cleanup.cron=-")
+        contextRunner.withPropertyValues("euv-app.auth.session-cleanup.cron=-")
                 .run(context -> assertThat(cronTasks(context)).isEmpty());
     }
 
     // Unix cron has 5 fields, Spring's 6 with seconds first: a pasted Unix one must not start at all.
     @Test
     void unixCronStopsStartup() {
-        contextRunner.withPropertyValues("auth.session-cleanup.cron=0 5 * * *")
+        contextRunner.withPropertyValues("euv-app.auth.session-cleanup.cron=0 5 * * *")
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().hasStackTraceContaining("0 5 * * *"));
     }
@@ -74,7 +74,7 @@ class SessionCleanupSettingsTest {
 
     @Test
     void retentionCanBeChanged() {
-        contextRunner.withPropertyValues("auth.session-cleanup.retention=7d")
+        contextRunner.withPropertyValues("euv-app.auth.session-cleanup.retention=7d")
                 .run(context -> assertThat(cutoff(context)).isCloseTo(
                         Instant.now().minus(Duration.ofDays(7)), within(1, ChronoUnit.MINUTES)));
     }
@@ -82,7 +82,7 @@ class SessionCleanupSettingsTest {
     // The cutoff would land in the future and delete live sessions.
     @Test
     void negativeRetentionStopsStartup() {
-        contextRunner.withPropertyValues("auth.session-cleanup.retention=-1d")
+        contextRunner.withPropertyValues("euv-app.auth.session-cleanup.retention=-1d")
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().hasStackTraceContaining("retention"));
     }

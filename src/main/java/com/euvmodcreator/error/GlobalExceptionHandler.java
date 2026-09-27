@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
+import org.springframework.resilience.InvocationRejectedException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -45,6 +46,12 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         log.warn("Database constraint rejected a write", ex);
         return problem(HttpStatus.CONFLICT, "conflict", "The request conflicts with existing data");
+    }
+
+    // A @ConcurrencyLimit(policy = REJECT) method already had as many calls running as it allows.
+    @ExceptionHandler(InvocationRejectedException.class)
+    ProblemDetail handleRejectedInvocation(InvocationRejectedException ex) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "server_busy", "Server busy, try again shortly");
     }
 
     @ExceptionHandler(Exception.class)

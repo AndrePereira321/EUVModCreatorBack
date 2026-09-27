@@ -23,7 +23,7 @@ class RateLimitPropertiesTest {
 
     @Test
     void zeroCapacityStopsStartup() {
-        contextRunner.withPropertyValues("auth.rate-limit.login-capacity=0")
+        contextRunner.withPropertyValues("euv-app.auth.rate-limit.login-capacity=0")
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().hasStackTraceContaining("loginCapacity"));
     }
@@ -31,7 +31,7 @@ class RateLimitPropertiesTest {
     // A zero lock duration would switch the lockout off without a word.
     @Test
     void zeroDurationStopsStartup() {
-        contextRunner.withPropertyValues("auth.rate-limit.failed-login-lock-duration=0s")
+        contextRunner.withPropertyValues("euv-app.auth.rate-limit.failed-login-lock-duration=0s")
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().hasStackTraceContaining("failedLoginLockDuration"));
     }

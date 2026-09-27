@@ -9,7 +9,7 @@ import org.springframework.validation.annotation.Validated;
 import java.time.Duration;
 
 @Validated
-@ConfigurationProperties("auth.session-cleanup")
+@ConfigurationProperties("euv-app.auth.session-cleanup")
 record SessionCleanupProperties(
 
         @NotBlank

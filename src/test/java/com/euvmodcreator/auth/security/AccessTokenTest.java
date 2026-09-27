@@ -28,6 +28,8 @@ class AccessTokenTest extends IntegrationTest {
 
     private static final String PROTECTED_PATH = "/api/nothing-here";
 
+    private static final Instant SESSION_END = Instant.now().plus(Duration.ofDays(30));
+
     @Autowired
     private TokenService tokenService;
 
@@ -39,7 +41,7 @@ class AccessTokenTest extends IntegrationTest {
 
     @Test
     void tokenIssuedByTheAppIsAccepted() {
-        String token = tokenService.issueAccessToken(savedUser().getId(), UUID.randomUUID());
+        String token = tokenService.issueAccessToken(savedUser().getId(), UUID.randomUUID(), SESSION_END);
 
         request(token)
                 .expectStatus().isNotFound()
@@ -66,7 +68,7 @@ class AccessTokenTest extends IntegrationTest {
                         Base64.getEncoder().encodeToString(otherKey), Duration.ofMinutes(15), Duration.ofDays(30)),
                 NimbusJwtEncoder.withSecretKey(new SecretKeySpec(otherKey, "HmacSHA256")).build());
 
-        expectInvalidAccessToken(request(forger.issueAccessToken(savedUser().getId(), UUID.randomUUID())));
+        expectInvalidAccessToken(request(forger.issueAccessToken(savedUser().getId(), UUID.randomUUID(), SESSION_END)));
     }
 
     // Five minutes past exp: the decoder allows 60 seconds of clock skew.

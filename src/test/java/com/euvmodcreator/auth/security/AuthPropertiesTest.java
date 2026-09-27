@@ -18,21 +18,21 @@ class AuthPropertiesTest {
 
     @Test
     void acceptsSecretOf32Bytes() {
-        contextRunner.withPropertyValues("auth.jwt.secret=" + randomBase64(32))
+        contextRunner.withPropertyValues("euv-app.auth.jwt.secret=" + randomBase64(32))
                 .run(context -> assertThat(context).hasNotFailed());
     }
 
     // Nimbus only checks the key length when it signs the first token, which would make every login a 500.
     @Test
     void secretShorterThan32BytesStopsStartup() {
-        contextRunner.withPropertyValues("auth.jwt.secret=" + randomBase64(16))
+        contextRunner.withPropertyValues("euv-app.auth.jwt.secret=" + randomBase64(16))
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().rootCause().hasMessageContaining("at least 32"));
     }
 
     @Test
     void secretThatIsNotBase64StopsStartup() {
-        contextRunner.withPropertyValues("auth.jwt.secret=not base64, but long enough to hold 32 bytes")
+        contextRunner.withPropertyValues("euv-app.auth.jwt.secret=not base64, but long enough to hold 32 bytes")
                 .run(context -> assertThat(context).hasFailed()
                         .getFailure().rootCause().hasMessageContaining("at least 32"));
     }

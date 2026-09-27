@@ -19,6 +19,8 @@ import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
@@ -112,6 +114,25 @@ class RefreshEndpointTest extends IntegrationTest {
                 .expectStatus().isOk()
                 .expectCookie().maxAge(COOKIE, seconds ->
                         assertThat(seconds).isBetween(left.minusMinutes(1).toSeconds(), left.toSeconds()));
+    }
+
+    // A session with a minute left gets an access token that lasts a minute, not access-token-ttl.
+    @Test
+    void accessTokenExpiresWithTheSession() {
+        register();
+        String token = login();
+        jdbcClient.sql("update user_sessions set expires_at = now() + interval '1 minute'").update();
+
+        LoginResponse response = refresh(token)
+                .expectStatus().isOk()
+                .expectBody(LoginResponse.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(response).isNotNull();
+        Instant sessionEnd = userSessionRepository.findAll().getFirst().getExpiresAt();
+        assertThat(jwtDecoder.decode(response.accessToken()).getExpiresAt())
+                .isEqualTo(sessionEnd.truncatedTo(ChronoUnit.SECONDS));
     }
 
     @Test

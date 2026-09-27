@@ -30,16 +30,18 @@ public class TokenService {
 
     private final JwtEncoder jwtEncoder;
 
-    public String issueAccessToken(UUID userId, UUID sessionId) {
+    public String issueAccessToken(UUID userId, UUID sessionId, Instant sessionExpiresAt) {
         Assert.notNull(userId, "User must be saved before a token can be issued");
         Assert.notNull(sessionId, "Session must be saved before a token can be issued");
+        Assert.notNull(sessionExpiresAt, "A token can't outlive a session without an expiry");
 
         Instant now = Instant.now();
+        Instant ttlExpiry = now.plus(properties.accessTokenTtl());
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .subject(userId.toString())
                 .claim(SESSION_ID_CLAIM, sessionId.toString())
                 .issuedAt(now)
-                .expiresAt(now.plus(properties.accessTokenTtl()))
+                .expiresAt(ttlExpiry.isBefore(sessionExpiresAt) ? ttlExpiry : sessionExpiresAt)
                 .build();
 
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();

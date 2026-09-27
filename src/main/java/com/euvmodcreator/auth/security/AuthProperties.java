@@ -9,7 +9,7 @@ import java.time.Duration;
 import java.util.Base64;
 
 @Validated
-@ConfigurationProperties("auth.jwt")
+@ConfigurationProperties("euv-app.auth.jwt")
 record AuthProperties(
         @NotBlank
         String secret,
@@ -25,7 +25,7 @@ record AuthProperties(
 
     AuthProperties {
         if (secret != null && !secret.isBlank() && decodedLength(secret) < MIN_SECRET_BYTES) {
-            throw new IllegalArgumentException("auth.jwt.secret must be Base64 of at least " + MIN_SECRET_BYTES
+            throw new IllegalArgumentException("euv-app.auth.jwt.secret must be Base64 of at least " + MIN_SECRET_BYTES
                     + " random bytes: openssl rand -base64 32");
         }
     }

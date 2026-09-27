@@ -20,10 +20,7 @@ import com.euvmodcreator.ratelimit.RateLimitException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -172,7 +169,7 @@ class AuthServiceTest {
 
         authService.login(LOGIN, null);
 
-        verify(tokenService).issueAccessToken(user.getId(), SESSION_ID);
+        verify(tokenService).issueAccessToken(user.getId(), SESSION_ID, REFRESH_TOKEN.expiresAt());
     }
 
     @Test
@@ -289,11 +286,11 @@ class AuthServiceTest {
         RefreshToken rotated = new RefreshToken("new-token", expiresAt);
         when(tokenService.newRefreshToken(expiresAt)).thenReturn(rotated);
         when(tokenService.hashRefreshToken("new-token")).thenReturn("hashed-new-token");
-        when(tokenService.issueAccessToken(session.getUserId(), SESSION_ID)).thenReturn("access-token");
+        when(tokenService.issueAccessToken(session.getUserId(), SESSION_ID, expiresAt)).thenReturn("access-token");
 
         AuthResult result = authService.refresh("old-token");
 
-        verify(tokenService).issueAccessToken(session.getUserId(), SESSION_ID);
+        verify(tokenService).issueAccessToken(session.getUserId(), SESSION_ID, expiresAt);
         assertThat(result.accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isEqualTo(rotated);
         assertThat(session.getRefreshTokenHash()).isEqualTo("hashed-new-token");
@@ -404,7 +401,8 @@ class AuthServiceTest {
             ReflectionTestUtils.setField(session, "id", SESSION_ID);
             return session;
         });
-        when(tokenService.issueAccessToken(user.getId(), SESSION_ID)).thenReturn("access-token");
+        when(tokenService.issueAccessToken(user.getId(), SESSION_ID, REFRESH_TOKEN.expiresAt()))
+                .thenReturn("access-token");
         return user;
     }
 
@@ -424,7 +422,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.refresh("old-token")).isInstanceOf(InvalidRefreshTokenException.class);
 
         verify(tokenService, never()).newRefreshToken(any());
-        verify(tokenService, never()).issueAccessToken(any(), any());
+        verify(tokenService, never()).issueAccessToken(any(), any(), any());
     }
 
 }

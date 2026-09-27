@@ -12,6 +12,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.UUID;
 
@@ -37,22 +38,38 @@ class TokenServiceTest {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
 
-        Jwt jwt = decoder.decode(tokenService.issueAccessToken(userId, sessionId));
+        Jwt jwt = decoder.decode(tokenService.issueAccessToken(userId, sessionId, sessionEnd()));
 
         assertThat(jwt.getSubject()).isEqualTo(userId.toString());
         assertThat(jwt.getClaimAsString("sid")).isEqualTo(sessionId.toString());
         assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(ACCESS_TTL);
     }
 
+    // In a session's last minutes the token ends with the session instead of access-token-ttl later.
+    @Test
+    void accessTokenNeverOutlivesItsSession() {
+        Instant sessionEnd = Instant.now().plus(Duration.ofMinutes(5));
+
+        Jwt jwt = decoder.decode(tokenService.issueAccessToken(UUID.randomUUID(), UUID.randomUUID(), sessionEnd));
+
+        assertThat(jwt.getExpiresAt()).isEqualTo(sessionEnd.truncatedTo(ChronoUnit.SECONDS));
+    }
+
     @Test
     void refusesMissingUserId() {
-        assertThatThrownBy(() -> tokenService.issueAccessToken(null, UUID.randomUUID()))
+        assertThatThrownBy(() -> tokenService.issueAccessToken(null, UUID.randomUUID(), sessionEnd()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void refusesMissingSessionId() {
-        assertThatThrownBy(() -> tokenService.issueAccessToken(UUID.randomUUID(), null))
+        assertThatThrownBy(() -> tokenService.issueAccessToken(UUID.randomUUID(), null, sessionEnd()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void refusesMissingSessionExpiry() {
+        assertThatThrownBy(() -> tokenService.issueAccessToken(UUID.randomUUID(), UUID.randomUUID(), null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -92,6 +109,10 @@ class TokenServiceTest {
     void hashesRefreshTokenWithSha256AsHex() {
         assertThat(tokenService.hashRefreshToken("abc"))
                 .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+
+    private static Instant sessionEnd() {
+        return Instant.now().plus(REFRESH_TTL);
     }
 
     private static SecretKey randomKey() {

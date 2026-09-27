@@ -27,10 +27,11 @@ Tables: `users`, `user_auth` (1:1, the password hash), `user_sessions` (one row 
 Spring Security's OAuth2 resource server validates them, not a hand-written filter. The app signs its own tokens
 (HS256, `NimbusJwtEncoder`, in `TokenService`) and Spring validates them; `SecurityConfig` holds the encoder and the
 decoder. The subject (`sub`) is the user id, and `sid` the session's row id (see
-[The current user](#the-current-user)).
+[The current user](#the-current-user)). `exp` is `access-token-ttl` after issue, or the session's end if that comes
+first (see [Refresh](#refresh)).
 
-Settings bind to `AuthProperties` (`auth.jwt.*`): `secret` is required — `JWT_SECRET` in production, never a default
-in any committed file — `access-token-ttl` defaults to 15m and `refresh-token-ttl` to 30d, both in code.
+Settings bind to `AuthProperties` (`euv-app.auth.jwt.*`): `secret` is required — `JWT_SECRET` in production, never a
+default in any committed file — `access-token-ttl` defaults to 15m and `refresh-token-ttl` to 30d, both in code.
 
 The secret must be Base64 of at least 32 bytes, the smallest key HS256 allows. `AuthProperties` checks that in its
 compact constructor, so a short or non-Base64 secret stops startup. Without the check the app boots anyway: Nimbus
@@ -180,9 +181,10 @@ migration can add a `previous_token_hash` column.
 
 **Fixed lifetime.** A session ends `refresh-token-ttl` after login, however active the user is. Refresh never extends
 it: the rotated token takes the session's own `expires_at` (`TokenService.newRefreshToken(Instant)`), so the cookie's
-`Max-Age` shrinks with every refresh and still runs out together with the row. An access token issued just before the
-end outlives the session by up to `access-token-ttl`. Logout has the same gap, and it is accepted; capping the
-access token's expiry at the session's would close it.
+`Max-Age` shrinks with every refresh and still runs out together with the row. The access token can't outlive the
+session either: `TokenService.issueAccessToken` takes the session's `expires_at` and uses it as `exp` when it comes
+before `access-token-ttl` from now, so a refresh in the session's last minutes gets a token that ends with it
+(`RefreshEndpointTest.accessTokenExpiresWithTheSession`). Logout still leaves a gap (see [Logout](#logout)).
 
 **One 401 `auth.invalid_refresh_token`** for a missing cookie, an unknown token, and a revoked or expired session:
 
@@ -228,8 +230,9 @@ builds both, so they can't drift apart; `LogoutEndpointTest` checks every attrib
 **One device only.** The user's other sessions keep working. "Log out everywhere" would revoke all of the user's rows,
 which needs to know who the user is — the access token — and isn't built.
 
-**Access tokens outlive it** by up to `access-token-ttl`; the frontend throws its copy away. The same accepted gap as
-at the end of a session (see [Refresh](#refresh)).
+**Access tokens outlive it** by up to `access-token-ttl`; the frontend throws its copy away. Accepted: closing it
+needs the per-request session check (see [The current user](#the-current-user)). A session's natural end has no such
+gap, since the access token is capped at it (see [Refresh](#refresh)).
 
 ## Session cleanup
 
@@ -237,10 +240,12 @@ at the end of a session (see [Refresh](#refresh)).
 ago. Younger ones stay, so recent sign-ins and logouts can still be looked up. Nothing else depends on the rows going:
 refresh already rejects an expired or revoked session.
 
-| setting (`SessionCleanupProperties`) | default       | rule                                                          |
-| ------------------------------------ | ------------- | ------------------------------------------------------------- |
-| `auth.session-cleanup.cron`          | `0 0 5 * * *` | Spring cron, 6 fields with seconds first; `-` switches it off |
-| `auth.session-cleanup.retention`     | `30d`         | not negative: a negative one would delete live sessions       |
+Both under `euv-app.auth.session-cleanup`, in `SessionCleanupProperties`:
+
+| setting     | default       | rule                                                          |
+| ----------- | ------------- | ------------------------------------------------------------- |
+| `cron`      | `0 0 5 * * *` | Spring cron, 6 fields with seconds first; `-` switches it off |
+| `retention` | `30d`         | not negative: a negative one would delete live sessions       |
 
 **Daily at 05:00 UTC.** In UTC, so the time doesn't move with the server's zone or daylight saving. No hour has all of
 Europe and the Americas asleep; at 05:00 UTC it is 06:00–07:00 in Central Europe, 00:00–01:00 in New York and 02:00
@@ -360,17 +365,22 @@ The first real candidate is the per-request session check above, not `/me`, beca
 
 ## Rate limiting
 
-Three limits, in front of the two endpoints that run BCrypt:
+Five limits, around the two endpoints that run BCrypt:
 
-| limit          | key                | default                      | enforced by                                   |
-| -------------- | ------------------ | ---------------------------- | --------------------------------------------- |
-| login requests | client IP          | 10 per minute                | `RateLimiter`, through `RateLimitInterceptor` |
-| registrations  | client IP          | 5 per hour                   | `RateLimiter`, through `RateLimitInterceptor` |
-| failed logins  | submitted username | 5, then locked for 5 minutes | `Lockout`, in `AuthService.login`             |
+| limit                 | key                | default               | enforced by                                   |
+| --------------------- | ------------------ | --------------------- | --------------------------------------------- |
+| login requests        | client IP          | 10 per minute         | `RateLimiter`, through `RateLimitInterceptor` |
+| registrations         | client IP          | 5 per hour            | `RateLimiter`, through `RateLimitInterceptor` |
+| failed logins         | submitted username | 5, then 5-minute lock | `Lockout`, in `AuthService.login`             |
+| logins at once        | none: the instance | 16                    | `@ConcurrencyLimit` on `AuthService.login`    |
+| registrations at once | none: the instance | 2                     | `@ConcurrencyLimit` on `AuthService.register` |
 
-The numbers are `auth.rate-limit.*` settings in `RateLimitProperties`, with these defaults in code.
+The numbers are `euv-app.auth.rate-limit.*` settings. The first three live in `RateLimitProperties`, with these
+defaults in code; the two concurrency limits are `login-concurrency` and `register-concurrency`, read by the
+annotations themselves (see below).
 
-Every rejection is 429 `rate_limited`, with `params.retryAfterSeconds` and the same number in a `Retry-After` header.
+The first three reject with 429 `rate_limited`, with `params.retryAfterSeconds` and the same number in a `Retry-After`
+header; the concurrency limits with 503 `server_busy`.
 `ApiException` carries no headers, so `RateLimitException` has its own handler in `GlobalExceptionHandler`; Spring
 picks the handler for the closest exception type, so it wins over the `ApiException` one. `RateLimitConfig` in
 `auth/security/` builds the limiters from `RateLimitProperties` and registers the interceptors. `ratelimit/` holds
@@ -395,6 +405,39 @@ outcome known.
   separate count, concurrent guesses could all pass the check before any failure was recorded.
 - The lock starts at the 5th attempt; attempts rejected during it don't extend it.
 
+**Globally: calls at once, with `@ConcurrencyLimit`.** The per-IP and per-username limits count per key, so a flood
+spread over many IPs still gets through them, and every request it sends costs a BCrypt hash: about 80 ms of CPU.
+Spring Framework 7's `@ConcurrencyLimit(policy = REJECT)` on `AuthService.login` and `register` caps how many calls
+run at once in the whole instance, whatever their IP: 16 logins and 2 registrations by default. Each instance has its
+own limits, like its own CPU. Past the limit a call is refused at once with
+`InvocationRejectedException`, which `GlobalExceptionHandler` answers with 503 `server_busy`: "try again", not "wrong
+password", and no `Retry-After`, since a slot frees within one hash. `BLOCK`, the default policy, would queue the call
+instead, holding a thread while it waits.
+
+It works through a proxy, like `@Transactional`. `@EnableResilientMethods` on `EuvModCreatorBackApplication` registers
+a bean post-processor that wraps every bean with a `@ConcurrencyLimit` method in a proxy, and the proxy counts the
+calls in flight. So only calls through the proxy count, never one from inside `AuthService`, and without
+`@EnableResilientMethods` the annotation is ignored without a word. On a method it gives that method its own counter,
+so logins and registrations never take each other's slots; on a class, all its methods would share one.
+
+**Why 16 logins.** Above the per-IP burst of 10, so one machine can never take every slot, even sending all its
+logins at the same instant; only a flood from several IPs reaches the limit. The cost: once more hashes run than the
+server has cores, they share the CPU and each gets slower instead of being refused — 16 at once on 4 cores is about
+320 ms per login. 16 fits 4 cores or more; the production server isn't chosen yet, so tune the property then. 2
+registrations, because they are rare.
+
+- The limit is `limitString = "${euv-app.auth.rate-limit.login-concurrency:16}"`, a placeholder, because an
+  annotation can't read `RateLimitProperties`. Spring resolves it on the first call, not at startup: a value that isn't
+  a number only shows as a 500 on the first login, `0` turns every call away, and `-1` removes the limit.
+- The whole method runs inside the limit, database calls included, not only the hash. The lockout does too, so a
+  rejected login never counts towards the username's lockout. It still used up a token of the per-IP limit, whose
+  interceptor runs first.
+- Not a 401: the password was never checked, and the 503 is the same for every username.
+
+Measured against the running app (16 cores): with the limit at 4, 10 logins sent at once from one IP got four 401s
+and six 503s, and the 11th request got a 429 from the per-IP limit. At 16, the same 10 all got their 401, the slowest
+in 0.43 s.
+
 The trade-off: anyone can lock an account for 5 minutes by failing with its username. The lock is short, and the
 per-IP limit caps how many accounts one machine can keep locked. NIST SP 800-63B-4 also caps consecutive failures on
 an account at 100, after which the password is disabled; that needs a way back in (password reset), so it waits for
@@ -414,11 +457,8 @@ buckets into shared storage; PostgreSQL (`bucket4j_jdk17-postgresql`) fits, sinc
 BCrypt, but it has no TTL, so a scheduled job must call `removeExpired`. `Lockout` isn't a bucket and would need its
 own table. Callers only see `consume`, `clear` and `reset`, so the change stays inside `ratelimit/`.
 
-**Not built yet:**
-
-- A global cap on concurrent BCrypt: `@ConcurrencyLimit(policy = REJECT)` (Spring Framework 7) on `login` and
-  `register`, mapped to 503. Per-key limits don't stop a flood from many IPs.
-- IPv6 keys on the /64 prefix: one connection usually owns a whole /64, so a full address is free to rotate.
+**Not built yet:** IPv6 keys on the /64 prefix. One connection usually owns a whole /64, so a full address is free to
+rotate.
 
 **Tests.** `IntegrationTest` resets every `RateLimiter` and `Lockout` before each test: all tests come from 127.0.0.1
 and share one app, so the counts would carry over and turn later tests into 429s (35 did before the reset).
@@ -427,14 +467,21 @@ and share one app, so the counts would carry over and turn later tests into 429s
 - `LockoutTest`, `RateLimiterTest`: the lock window, its start at the last allowed attempt, rejected attempts not
   extending it, `Retry-After` rounding up, `clear` and `reset`.
 - `AuthServiceTest`: the lockout runs before BCrypt, on the lowercased username, and only a success clears it.
+- `AuthConcurrencyLimitTest`: the real `AuthService` behind the proxy, in an `ApplicationContextRunner`, with a
+  password encoder that holds every hash until the test releases it. The 17th login and the 3rd registration at once
+  are rejected, logins don't use up registrations' slots, and each limit comes from its property.
+- `EuvModCreatorBackApplicationTests`: `@EnableResilientMethods` and `@EnableScheduling` are on in the real app,
+  since without either nothing else would fail.
 - `LoginEndpointTest`, `RegisterEndpointTest`: every limit over HTTP, including the correct password refused while
   locked, a different casing locked too, an unknown username locked like a real one, and invalid requests using up
   the per-IP limit.
 - `RateLimitPropertiesTest`: the defaults, and a zero capacity or duration stopping startup.
-- `GlobalExceptionHandlerTest`: the 429 body and `Retry-After`.
+- `GlobalExceptionHandlerTest`: the 429 body and `Retry-After`, and the 503 for a rejected call.
 
-Each was checked against a broken version: without the `clear`, without the lowercasing, with a lock that rejected
-attempts extend, and without `@Validated`, the matching tests failed.
+Each was checked against a broken version, and the matching tests failed: without the `clear`, without the
+lowercasing, with a lock that rejected attempts extend, without `@Validated`, without `@EnableResilientMethods`, with
+`BLOCK` instead of `REJECT`, without the annotation on `register`, with a misspelt property, and without the 503
+handler.
 
 ## The frontend's side
 
@@ -449,9 +496,11 @@ Not built yet. What the backend expects of it:
   the user out.
 - The Vite dev server on `localhost:5173` is the same site as the API on `localhost:8080` but a different origin, so
   fetch needs `credentials: 'include'`. The backend half is built: `WebConfig` allows the origins in
-  `web.cors.allowed-origins` with credentials. Without both, the browser ignores the cookie. Check then that the
+  `euv-app.web.cors.allowed-origins` with credentials. Without both, the browser ignores the cookie. Check then that the
   `Secure` cookie survives plain `http://localhost` in the browsers used for development.
 - A 429 `rate_limited` is not a logout: show "try again in `retryAfterSeconds`" and keep the session.
+- A 503 `server_busy` from login or register is not a wrong password: say the server is busy and let the user retry.
+  Don't retry automatically; a rejected request still uses up the per-IP limit.
 
 ## Where password hashes are read
 

@@ -6,6 +6,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.resilience.InvocationRejectedException;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -73,6 +74,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void rejectedInvocationIs503ServerBusy() {
+        assertThat(mvc.get().uri("/busy"))
+                .hasStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .bodyJson()
+                .extractingPath("$.code").isEqualTo("server_busy");
+    }
+
+    @Test
     void springMvcErrorGetsACodeFromItsStatus() {
         assertThat(mvc.post().uri("/plain"))
                 .hasStatus(HttpStatus.METHOD_NOT_ALLOWED)
@@ -109,6 +119,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/rate-limited")
         void rateLimited() {
             throw new RateLimitException(42);
+        }
+
+        @GetMapping("/busy")
+        void busy() {
+            throw new InvocationRejectedException("Concurrency limit reached: 4", this);
         }
 
         @GetMapping("/unexpected")

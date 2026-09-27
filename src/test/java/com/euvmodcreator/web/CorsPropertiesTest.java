@@ -14,7 +14,7 @@ class CorsPropertiesTest {
 
     @Test
     void readsACommaSeparatedList() {
-        assertThat(bind(Map.of("web.cors.allowed-origins", "http://localhost:5173,https://app.example.com"))
+        assertThat(bind(Map.of("euv-app.web.cors.allowed-origins", "http://localhost:5173,https://app.example.com"))
                 .allowedOrigins())
                 .containsExactly("http://localhost:5173", "https://app.example.com");
     }
@@ -27,7 +27,7 @@ class CorsPropertiesTest {
     // Production sets CORS_ALLOWED_ORIGINS empty when the frontend shares the API's origin.
     @Test
     void allowsNoOriginWhenEmpty() {
-        assertThat(bind(Map.of("web.cors.allowed-origins", "")).allowedOrigins()).isEmpty();
+        assertThat(bind(Map.of("euv-app.web.cors.allowed-origins", "")).allowedOrigins()).isEmpty();
     }
 
     // Browsers refuse a * together with credentials; failing at startup beats failing on the first request.
@@ -37,7 +37,8 @@ class CorsPropertiesTest {
     }
 
     private static CorsProperties bind(Map<String, String> properties) {
-        return new Binder(new MapConfigurationPropertySource(properties)).bindOrCreate("web.cors", CorsProperties.class);
+        return new Binder(new MapConfigurationPropertySource(properties))
+                .bindOrCreate("euv-app.web.cors", CorsProperties.class);
     }
 
 }

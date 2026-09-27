@@ -9,7 +9,7 @@ import org.springframework.validation.annotation.Validated;
 import java.time.Duration;
 
 @Validated
-@ConfigurationProperties("auth.rate-limit")
+@ConfigurationProperties("euv-app.auth.rate-limit")
 record RateLimitProperties(
 
         @Positive

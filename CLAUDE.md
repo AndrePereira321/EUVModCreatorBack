@@ -9,8 +9,8 @@ Backend notes too long for this file — the reasoning behind the rules here. Co
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
 - [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, how a request gets the current
-  user, rate limiting and the login lockout, the session cleanup job, what the frontend must do, where a cache would
-  go, and why login, refresh, logout, usernames and passwords work the way they do.
+  user, rate limiting, the login lockout and the concurrency limits, the session cleanup job, what the frontend must
+  do, where a cache would go, and why login, refresh, logout, usernames and passwords work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, where validation rules live, keys,
   indexing (including case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not
   recalled.
@@ -95,11 +95,17 @@ file, they do not replace it. Neither `spring.profiles.active` nor `spring.profi
 profile-specific file — Spring rejects that at startup.
 
 `application-local.properties` is **not in git** because it holds the local JWT signing key. A fresh clone copies
-`application-local.properties.example` to it and fills in `auth.jwt.secret` before running the app. Tests don't
+`application-local.properties.example` to it and fills in `euv-app.auth.jwt.secret` before running the app. Tests don't
 need it: they run on the `test` profile (see Tests).
 
 `application-production.properties` deliberately has **no fallback values** (`${DATABASE_URL}`, not
 `${DATABASE_URL:jdbc:...}`). A missing env var must kill startup rather than quietly boot against localhost.
+
+**Every property of ours sits under `euv-app.`** (`euv-app.auth.jwt.secret`, `euv-app.web.cors.allowed-origins`), in a
+`@ConfigurationProperties` prefix and in a `${...}` placeholder alike, so it can never clash with a key of Spring's or
+a library's; `ConfigurationPropertiesPrefixTest` checks the records. Production maps each env var by name in
+`application-production.properties` (`JWT_SECRET`, `CORS_ALLOWED_ORIGINS`) rather than relying on relaxed binding's
+generated names (`EUVAPP_AUTH_JWT_SECRET`).
 
 Settings that look like candidates for "simplification" and are not:
 
@@ -170,7 +176,7 @@ Don't reopen these without a reason:
 - **Auth is JWT plus a server-side session row** — see the Auth section below.
 - **CORS rules live in Spring Web (`WebConfig.addCorsMappings`), and Spring Security applies them** through
   `.cors(withDefaults())`. It must: a preflight carries no token, so without it Security answers the preflight with
-  a 401. Origins come from `web.cors.allowed-origins` (`CORS_ALLOWED_ORIGINS` in production), never `*`, since
+  a 401. Origins come from `euv-app.web.cors.allowed-origins` (`CORS_ALLOWED_ORIGINS` in production), never `*`, since
   requests carry credentials. An empty list is the off switch and rejects every cross-origin request with a 403.
   The browser's CORS error reads like an auth failure and is not.
 - **Every `@RestController` sits under `/api`, added once by `WebConfig.configurePathMatch`.** Controllers map
@@ -195,8 +201,8 @@ A short-lived JWT access token, plus a refresh token in an `HttpOnly` cookie who
 The design, the endpoints and the reasoning behind every rule below are in [auth](.ai-support/auth.md) — read it
 before changing anything in `auth/`.
 
-- `auth.jwt.secret` never gets a default in a committed file, and must decode to at least 32 bytes; `AuthProperties`
-  checks that at startup.
+- `euv-app.auth.jwt.secret` never gets a default in a committed file, and must decode to at least 32 bytes;
+  `AuthProperties` checks that at startup.
 - BCrypt never runs inside a transaction, which holds a pooled connection from its start: `register` hashes before
   `TransactionOperations.execute`, and `login` has no `@Transactional`.
 - CSRF is off, which is only safe while the refresh cookie is `SameSite`.
@@ -206,7 +212,7 @@ before changing anything in `auth/`.
 - Login revokes the session of the cookie it replaces, after the password check, through the bulk
   `revokeByRefreshTokenHash`. Not `findByRefreshTokenHash`: its `@Lock` needs a transaction, and `login` has none.
 - A bulk `@Modifying` update sets `updatedAt` itself: `@UpdateTimestamp` only fires when Hibernate flushes an entity.
-- `SessionCleanupJob` deletes sessions that ended more than `auth.session-cleanup.retention` (30d) ago, daily at
+- `SessionCleanupJob` deletes sessions that ended more than `euv-app.auth.session-cleanup.retention` (30d) ago, daily at
   05:00 UTC. Its cron lives in `SessionCleanupProperties`, so the job registers it through `SchedulingConfigurer`:
   `@Scheduled` can't read a bean. Tests set the cron to `-` and call the job directly.
 - Logout never fails: 204 and a cleared cookie, whatever the token. The clearing cookie comes from the same
@@ -215,7 +221,8 @@ before changing anything in `auth/`.
   passes the ids to services as parameters. `AuthenticatedUserConverter` builds it from the token alone, never from
   the database, and rejects a bad token with an `AuthenticationException` subclass; anything else becomes a 500.
 - Access tokens are checked by signature and `exp` only, so revoking a session takes up to `access-token-ttl` to
-  reach them. A validator added to the decoder must keep `JwtValidators.createDefault()`, which is what checks `exp`.
+  reach them. `issueAccessToken` takes the session's `expiresAt` and caps `exp` at it, so a token never outlives its
+  session. A validator added to the decoder must keep `JwtValidators.createDefault()`, which is what checks `exp`.
 - `UserService.findUser` returns a record, never the entity, so a cache can go on it later.
 - `@Qualifier` on a constructor parameter needs a hand-written constructor: Lombok's `@RequiredArgsConstructor`
   drops it.
@@ -224,6 +231,10 @@ before changing anything in `auth/`.
 - No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user.
 - The login lockout keys on the submitted username, lowercased, never the user id — keyed on the id, a 429 would
   confirm an account exists — and runs before BCrypt.
+- `login` and `register` carry `@ConcurrencyLimit(policy = REJECT)`: 16 and 2 calls at once per instance
+  (`euv-app.auth.rate-limit.login-concurrency`, `register-concurrency`), then 503 `server_busy`. It works through a
+  proxy like `@Transactional`, so it needs `@EnableResilientMethods` and never counts a call from inside
+  `AuthService`.
 
 ## IntelliJ gotchas
 

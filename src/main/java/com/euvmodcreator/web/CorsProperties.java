@@ -6,7 +6,7 @@ import org.springframework.util.Assert;
 
 import java.util.List;
 
-@ConfigurationProperties("web.cors")
+@ConfigurationProperties("euv-app.web.cors")
 record CorsProperties(
         @DefaultValue
         List<String> allowedOrigins
@@ -14,7 +14,8 @@ record CorsProperties(
 
     CorsProperties {
         Assert.isTrue(!allowedOrigins.contains("*"),
-                "web.cors.allowed-origins can't be *: requests carry the refresh cookie, so origins must be explicit");
+                "euv-app.web.cors.allowed-origins can't be *: requests carry the refresh cookie, "
+                        + "so origins must be explicit");
     }
 
 }
