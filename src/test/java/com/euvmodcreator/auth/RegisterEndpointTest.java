@@ -3,7 +3,6 @@ package com.euvmodcreator.auth;
 import com.euvmodcreator.IntegrationTest;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
-import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
 import org.junit.jupiter.api.Test;
@@ -11,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -27,13 +27,14 @@ class RegisterEndpointTest extends IntegrationTest {
     private UserRepository userRepository;
 
     @Autowired
-    private UserAuthRepository userAuthRepository;
-
-    @Autowired
     private UserSessionRepository userSessionRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    // Read through SQL: UserAuthRepository has no method that returns a hash, on purpose.
+    @Autowired
+    private JdbcClient jdbcClient;
 
     @Test
     void registersUserAndStoresOnlyAPasswordHash() {
@@ -47,11 +48,12 @@ class RegisterEndpointTest extends IntegrationTest {
         assertThat(response.id()).isNotNull();
         assertThat(response.username()).isEqualTo("Andre");
 
-        assertThat(userAuthRepository.findAll()).singleElement().satisfies(auth -> {
-            assertThat(auth.getUserId()).isEqualTo(response.id());
-            assertThat(auth.getPasswordHash()).startsWith("{bcrypt}");
-            assertThat(passwordEncoder.matches("password123", auth.getPasswordHash())).isTrue();
-        });
+        String passwordHash = jdbcClient.sql("select password_hash from user_auth where user_id = :userId")
+                .param("userId", response.id())
+                .query(String.class)
+                .single();
+        assertThat(passwordHash).startsWith("{bcrypt}");
+        assertThat(passwordEncoder.matches("password123", passwordHash)).isTrue();
     }
 
     // Sessions start at login only; the frontend calls login right after register.
@@ -99,7 +101,7 @@ class RegisterEndpointTest extends IntegrationTest {
         }
 
         assertThat(userRepository.count()).isEqualTo(1);
-        assertThat(userAuthRepository.count()).isEqualTo(1);
+        assertThat(jdbcClient.sql("select count(*) from user_auth").query(Long.class).single()).isEqualTo(1L);
     }
 
     // 5 an hour from one IP, one back every 12 minutes; the refused request saves nothing.

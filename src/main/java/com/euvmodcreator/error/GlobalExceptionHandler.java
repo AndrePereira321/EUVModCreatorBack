@@ -1,5 +1,6 @@
 package com.euvmodcreator.error;
 
+import com.euvmodcreator.auth.exception.InvalidAccessTokenException;
 import com.euvmodcreator.ratelimit.RateLimitException;
 import jakarta.validation.ConstraintViolation;
 import lombok.extern.slf4j.Slf4j;
@@ -68,6 +69,14 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<ProblemDetail> handleRateLimited(RateLimitException ex) {
         return ResponseEntity.status(ex.getStatus())
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(handleApiException(ex));
+    }
+
+    // Thrown by the security filter chain's entry point and by controllers alike; the header goes with the code.
+    @ExceptionHandler(InvalidAccessTokenException.class)
+    ResponseEntity<ProblemDetail> handleInvalidAccessToken(InvalidAccessTokenException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .body(handleApiException(ex));
     }
 

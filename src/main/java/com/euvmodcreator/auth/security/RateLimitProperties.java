@@ -10,7 +10,7 @@ import java.time.Duration;
 
 @Validated
 @ConfigurationProperties("euv-app.auth.rate-limit")
-record RateLimitProperties(
+public record RateLimitProperties(
 
         @Positive
         @DefaultValue("10")
@@ -34,7 +34,26 @@ record RateLimitProperties(
 
         @DurationMin(seconds = 1)
         @DefaultValue("5m")
-        Duration failedLoginLockDuration
+        Duration failedLoginLockDuration,
+
+        @Positive
+        @DefaultValue(DEFAULT_LOGIN_CONCURRENCY)
+        int loginConcurrency,
+
+        @Positive
+        @DefaultValue(DEFAULT_REGISTER_CONCURRENCY)
+        int registerConcurrency
 
 ) {
+
+    static final String DEFAULT_LOGIN_CONCURRENCY = "16";
+
+    static final String DEFAULT_REGISTER_CONCURRENCY = "2";
+
+    public static final String LOGIN_CONCURRENCY_LIMIT =
+            "${euv-app.auth.rate-limit.login-concurrency:" + DEFAULT_LOGIN_CONCURRENCY + "}";
+
+    public static final String REGISTER_CONCURRENCY_LIMIT =
+            "${euv-app.auth.rate-limit.register-concurrency:" + DEFAULT_REGISTER_CONCURRENCY + "}";
+
 }

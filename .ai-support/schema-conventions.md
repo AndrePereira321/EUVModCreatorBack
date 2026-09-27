@@ -20,6 +20,11 @@ before either one saves) and foreign keys. If a bound ever does belong in the ta
 constraint, never as `varchar(n)`, and keep it no stricter than the DTO. Otherwise input the DTO accepted fails in
 the database, and `GlobalExceptionHandler` answers it with a generic 409 `conflict`.
 
+One `check` exists anyway: `user_sessions` has `expires_at > created_at`. Neither value comes from a request —
+both are set by the code — so there is no DTO rule to keep it in sync with; it turns a bug that produces a session
+ending before it started into a failed insert rather than a row refresh quietly rejects. A test that backdates
+`expires_at` must move `created_at` with it.
+
 ## `timestamptz`, never `timestamp`
 
 `timestamp` carries no offset, and `now()` returns a `timestamptz` — so a `timestamp` column silently discards the

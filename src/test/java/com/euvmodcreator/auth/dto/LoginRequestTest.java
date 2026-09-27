@@ -20,6 +20,13 @@ class LoginRequestTest {
     @Test
     void acceptsCredentialsThatRegisterWouldReject() {
         assertThat(failedRules(new LoginRequest("a b", "short"))).isEmpty();
+        assertThat(failedRules(new LoginRequest("a".repeat(32), "short"))).isEmpty();
+    }
+
+    // The one rule login shares: no account was ever allowed a longer username, so the cap locks nobody out.
+    @Test
+    void rejectsUsernameLongerThanRegisterEverAllowed() {
+        assertThat(failedRules(new LoginRequest("a".repeat(33), "password123"))).contains("username:Size");
     }
 
     @ParameterizedTest

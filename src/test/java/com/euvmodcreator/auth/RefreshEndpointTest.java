@@ -154,6 +154,22 @@ class RefreshEndpointTest extends IntegrationTest {
         expectInvalidRefreshToken(refresh(token));
     }
 
+    // Every rejection comes before the write, and @Transactional rolls back anything else: the row is untouched.
+    @Test
+    void failedRefreshLeavesTheSessionUntouched() {
+        register();
+        String token = login();
+        jdbcClient.sql("update user_sessions set revoked_at = now()").update();
+        UserSession before = userSessionRepository.findAll().getFirst();
+
+        expectInvalidRefreshToken(refresh(token));
+
+        assertThat(userSessionRepository.findAll()).singleElement().satisfies(session -> {
+            assertThat(session.getRefreshTokenHash()).isEqualTo(tokenService.hashRefreshToken(token));
+            assertThat(session.getUpdatedAt()).isEqualTo(before.getUpdatedAt());
+        });
+    }
+
     // created_at moves back too: the table checks that a session expires after it started.
     @Test
     void expiredSessionIsInvalidRefreshToken() {

@@ -222,19 +222,26 @@ before changing anything in `auth/`.
   the database, and rejects a bad token with an `AuthenticationException` subclass; anything else becomes a 500.
 - Access tokens are checked by signature and `exp` only, so revoking a session takes up to `access-token-ttl` to
   reach them. `issueAccessToken` takes the session's `expiresAt` and caps `exp` at it, so a token never outlives its
-  session. A validator added to the decoder must keep `JwtValidators.createDefault()`, which is what checks `exp`.
+  session. The decoder's validators are `JwtValidators.createDefaultWithValidators(new JwtTimestampValidator(Duration.ZERO))`
+  — the defaults with no clock skew; a validator added goes into that call, and the `JwtTimestampValidator` stays,
+  since it is what checks `exp`.
+- `/api/auth/**` ignores the `Authorization` header: `SecurityConfig`'s `BearerTokenResolver` returns no token there.
+  The bearer filter runs before `permitAll` is consulted and would answer a stale token with a 401, which broke
+  refresh and logout for a frontend that sends its expired token along.
 - `UserService.findUser` returns a record, never the entity, so a cache can go on it later.
 - `@Qualifier` on a constructor parameter needs a hand-written constructor: Lombok's `@RequiredArgsConstructor`
   drops it.
-- Username lookups filter on `lower(username)` in a hand-written `@Query`; a derived `...IgnoreCase` compiles to
-  `upper()` and skips the index.
-- No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user.
+- Username lookups filter on `lower(username)` in a hand-written `@Query`, under a name Spring Data can't derive
+  (`usernameExists`); a derived `...IgnoreCase` compiles to `upper()` and skips the index.
+- No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user. `UserAuthRepository`
+  extends `Repository`, not `JpaRepository`, so no `findAll()` returns hashes either.
 - The login lockout keys on the submitted username, lowercased, never the user id — keyed on the id, a 429 would
   confirm an account exists — and runs before BCrypt.
 - `login` and `register` carry `@ConcurrencyLimit(policy = REJECT)`: 16 and 2 calls at once per instance
   (`euv-app.auth.rate-limit.login-concurrency`, `register-concurrency`), then 503 `server_busy`. It works through a
   proxy like `@Transactional`, so it needs `@EnableResilientMethods` and never counts a call from inside
-  `AuthService`.
+  `AuthService`. The annotations read placeholders held in `RateLimitProperties`, which binds the same keys so a bad
+  value stops startup instead of the first login.
 
 ## IntelliJ gotchas
 

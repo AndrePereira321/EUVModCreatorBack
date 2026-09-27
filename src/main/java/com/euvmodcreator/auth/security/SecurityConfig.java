@@ -11,19 +11,23 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import java.time.Duration;
 import java.util.Base64;
 
 @Configuration
 @EnableConfigurationProperties(AuthProperties.class)
 public class SecurityConfig {
+
+    private static final RequestMatcher AUTH_ENDPOINTS = PathPatternRequestMatcher.pathPattern("/api/auth/**");
 
     private final SecretKey jwtKey;
 
@@ -39,10 +43,11 @@ public class SecurityConfig {
         http
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers(AUTH_ENDPOINTS).permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        .bearerTokenResolver(ignoringAuthEndpoints())
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(new AuthenticatedUserConverter()))
                         .authenticationEntryPoint(accessTokenEntryPoint)
                 )
@@ -60,11 +65,18 @@ public class SecurityConfig {
 
     @Bean
     JwtDecoder jwtDecoder() {
-        return NimbusJwtDecoder.withSecretKey(jwtKey).macAlgorithm(MacAlgorithm.HS256).build();
+        NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder.withSecretKey(jwtKey).macAlgorithm(MacAlgorithm.HS256).build();
+        jwtDecoder.setJwtValidator(JwtValidators.createDefaultWithValidators(new JwtTimestampValidator(Duration.ZERO)));
+        return jwtDecoder;
     }
 
     @Bean
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    private static BearerTokenResolver ignoringAuthEndpoints() {
+        BearerTokenResolver defaultResolver = new DefaultBearerTokenResolver();
+        return request -> AUTH_ENDPOINTS.matches(request) ? null : defaultResolver.resolve(request);
     }
 }

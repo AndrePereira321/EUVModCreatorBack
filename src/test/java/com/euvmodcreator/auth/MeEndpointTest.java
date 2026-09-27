@@ -115,6 +115,7 @@ class MeEndpointTest extends IntegrationTest {
 
         me(accessToken)
                 .expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("auth.invalid_access_token");
     }

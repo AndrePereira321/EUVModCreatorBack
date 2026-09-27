@@ -89,7 +89,7 @@ class AuthServiceTest {
 
     @Test
     void rejectsTakenUsernameWithoutSavingAnything() {
-        when(userRepository.existsByUsernameIgnoreCase("Andre")).thenReturn(true);
+        when(userRepository.usernameExists("Andre")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(REGISTER)).isInstanceOf(UsernameTakenException.class);
 

@@ -1,5 +1,6 @@
 package com.euvmodcreator.error;
 
+import com.euvmodcreator.auth.exception.InvalidAccessTokenException;
 import com.euvmodcreator.ratelimit.RateLimitException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -73,6 +74,18 @@ class GlobalExceptionHandlerTest {
         assertThat(result).bodyJson().extractingPath("$.params.retryAfterSeconds").isEqualTo(42);
     }
 
+    // Thrown by the filter chain's entry point and by controllers alike; the header must come with the code.
+    @Test
+    void invalidAccessTokenIs401WithWwwAuthenticate() {
+        MvcTestResult result = mvc.get().uri("/invalid-access-token").exchange();
+
+        assertThat(result)
+                .hasStatus(HttpStatus.UNAUTHORIZED)
+                .hasHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(result).bodyJson().extractingPath("$.code").isEqualTo("auth.invalid_access_token");
+    }
+
     @Test
     void rejectedInvocationIs503ServerBusy() {
         assertThat(mvc.get().uri("/busy"))
@@ -119,6 +132,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/rate-limited")
         void rateLimited() {
             throw new RateLimitException(42);
+        }
+
+        @GetMapping("/invalid-access-token")
+        void invalidAccessToken() {
+            throw new InvalidAccessTokenException();
         }
 
         @GetMapping("/busy")

@@ -43,6 +43,23 @@ Everything outside `/api/auth/**` needs a Bearer token; without a valid one the 
 `auth.invalid_access_token`. The filter chain is stateless and CSRF protection is off, which is only safe while the
 refresh cookie is `SameSite`: the browser then never attaches it to a request another site started.
 
+**Inside `/api/auth/**` the `Authorization` header is ignored.** `permitAll` only skips the authorization step;
+`BearerTokenAuthenticationFilter` still runs first, authenticates any bearer token it finds, and a bad one ends the
+request at the entry point with the 401. The frontend sends its access token with every request, so the token it
+holds when it calls refresh is precisely the expired one: every refresh answered 401 `auth.invalid_access_token`,
+and logout with an expired token answered 401 and left the cookie in the browser. `SecurityConfig` gives the
+resource server a `BearerTokenResolver` that returns no token for the auth endpoints, matched by the same
+`RequestMatcher` the `permitAll` rule uses, so the filter lets those requests through untouched.
+`AccessTokenTest.expiredTokenDoesNotBlockRefresh`, `expiredTokenDoesNotBlockLogout` and
+`malformedTokenDoesNotBlockLogin` pin it.
+
+**No clock skew.** Spring's default `JwtTimestampValidator` accepts a token for 60 seconds after `exp`, for issuers
+whose clock differs from the validator's. This app validates the tokens it issued itself, so `SecurityConfig` sets
+the decoder's validators to `JwtValidators.createDefaultWithValidators(new JwtTimestampValidator(Duration.ZERO))`:
+the defaults, with the skew set to zero. A token is rejected the second it expires
+(`AccessTokenTest.expiredTokenIsInvalidAccessToken`, one second past `exp`); with the default it outlived the
+session it is capped to (see [Refresh](#refresh)) by up to a minute.
+
 ## Refresh tokens
 
 32 bytes from `SecureRandom` in URL-safe Base64 without padding: 43 characters, none of which a cookie parser could
@@ -84,7 +101,9 @@ and the user still sees `Andre`. A unique index on `lower(username)` enforces it
 
 Every lookup must filter on `lower(username)`, the index's exact expression, so the queries are hand-written
 `@Query`s. Spring Data's derived `...IgnoreCase` compiles to `upper()`, which can't use the index — measured, see
-[schema conventions](schema-conventions.md).
+[schema conventions](schema-conventions.md). The methods carry names Spring Data can't derive
+(`UserRepository.usernameExists`): drop the `@Query` from an `existsByUsernameIgnoreCase` and the derived `upper()`
+query takes over silently; drop it from `usernameExists` and startup fails.
 
 3–32 characters of `[A-Za-z0-9_]` (`RegisterRequest`).
 
@@ -95,8 +114,8 @@ least 64 characters, and composition rules push users towards predictable patter
 The same revision asks for a 15-character minimum when the password is the only factor; see
 [Open questions](#open-questions).
 
-`@MaxBytes(72)` guards BCrypt's input limit, which `@Size` can't: `@Size` counts characters, and one character can
-be up to 4 bytes in UTF-8. Spring Security 7 throws on a longer input instead of silently truncating it.
+`@MaxBytes(72)` guards BCrypt's input limit, which `@Size` can't: `@Size` counts UTF-16 units, and one unit can be
+up to 3 bytes in UTF-8. Spring Security 7 throws on a longer input instead of silently truncating it.
 
 Hashes come from the delegating `PasswordEncoder`, prefixed `{bcrypt}`; see
 [schema conventions](schema-conventions.md) for why the column has no length limit and there's no salt column.
@@ -144,8 +163,12 @@ code path skip `matches()`: an `orElseThrow` before it, or a `||` that short-cir
 Measured on the dev machine after the fix, averaging 10 failed logins each: wrong password 81.9 ms, unknown user
 75.4 ms — within noise.
 
-`LoginRequest` only checks `@NotBlank` and `@MaxBytes(72)`, not register's rules. Those describe *new* accounts;
-tightening them must not lock out existing ones. A username that breaks them just isn't found.
+`LoginRequest` checks `@NotBlank` and `@MaxBytes(72)`, and caps the username at 32 characters, but applies none of
+register's other rules. Those describe *new* accounts; tightening them must not lock out existing ones. A username
+that breaks them just isn't found. The cap is the exception because it can't lock anyone out — no account was ever
+allowed a longer name — and because the lockout cache is keyed on the username as submitted: without it, a
+multi-megabyte username from a few rotated IPs would sit in the heap for the lock duration. If register's maximum is
+ever lowered, login's stays; if it is raised, login's follows.
 
 **The cookie it replaces.** The `refresh_token` cookie's path is `/api/auth`, so login receives whatever cookie the
 browser already holds, and its response overwrites it. Left alone, the session behind the old cookie would stay valid
@@ -310,11 +333,17 @@ uses — so the body comes from `GlobalExceptionHandler`. It asks for the bean b
 hand-written constructor: Lombok's `@RequiredArgsConstructor` doesn't copy `@Qualifier` onto the parameter.
 `AccessTokenTest` covers each kind of bad token.
 
+The `WWW-Authenticate` header comes from `GlobalExceptionHandler`'s handler for `InvalidAccessTokenException`, not
+from the entry point, so it travels with the code wherever the exception is thrown: the entry point, or `/me` for a
+token that names a deleted user (`MeEndpointTest.deletedUserIsInvalidAccessToken`). Like `RateLimitException`, it
+has its own handler because `ApiException` carries no headers.
+
 **Revocation waits for `exp`.** Access tokens are checked by signature and `exp` alone; the session row is only read
 on refresh. To make logout take effect at once, add an `OAuth2TokenValidator<Jwt>` to the decoder that looks the
-session up by `sid`. `setJwtValidator` *replaces* the default validators, so wrap it together with
-`JwtValidators.createDefault()` in a `DelegatingOAuth2TokenValidator`, or expired tokens start being accepted. It
-costs a query per request; see [Caching](#caching).
+session up by `sid`: another argument to the `createDefaultWithValidators` call in `SecurityConfig` (see
+[Access tokens](#access-tokens)). `setJwtValidator` *replaces* the validators, so a `DelegatingOAuth2TokenValidator`
+built without a `JwtTimestampValidator` stops checking `exp`, and one built with the no-argument
+`JwtTimestampValidator` brings the 60 seconds of skew back. It costs a query per request; see [Caching](#caching).
 
 ## Me
 
@@ -375,9 +404,9 @@ Five limits, around the two endpoints that run BCrypt:
 | logins at once        | none: the instance | 16                    | `@ConcurrencyLimit` on `AuthService.login`    |
 | registrations at once | none: the instance | 2                     | `@ConcurrencyLimit` on `AuthService.register` |
 
-The numbers are `euv-app.auth.rate-limit.*` settings. The first three live in `RateLimitProperties`, with these
-defaults in code; the two concurrency limits are `login-concurrency` and `register-concurrency`, read by the
-annotations themselves (see below).
+The numbers are `euv-app.auth.rate-limit.*` settings bound by `RateLimitProperties`, with these defaults in code.
+The two concurrency limits, `login-concurrency` and `register-concurrency`, are also read by the annotations
+themselves (see below).
 
 The first three reject with 429 `rate_limited`, with `params.retryAfterSeconds` and the same number in a `Retry-After`
 header; the concurrency limits with 503 `server_busy`.
@@ -426,9 +455,13 @@ server has cores, they share the CPU and each gets slower instead of being refus
 320 ms per login. 16 fits 4 cores or more; the production server isn't chosen yet, so tune the property then. 2
 registrations, because they are rare.
 
-- The limit is `limitString = "${euv-app.auth.rate-limit.login-concurrency:16}"`, a placeholder, because an
-  annotation can't read `RateLimitProperties`. Spring resolves it on the first call, not at startup: a value that isn't
-  a number only shows as a 500 on the first login, `0` turns every call away, and `-1` removes the limit.
+- The limit is `limitString = RateLimitProperties.LOGIN_CONCURRENCY_LIMIT`, the placeholder
+  `${euv-app.auth.rate-limit.login-concurrency:16}`, because an annotation can't read a bean. Spring resolves it on
+  the first call, not at startup, where a value that isn't a number would show as a 500 on the first login, `0`
+  would turn every call away and `-1` would remove the limit. So `RateLimitProperties` binds the same two keys as
+  well, `@Positive`, and any of those values stops startup instead. The default is one constant, used by the
+  binding and the placeholder alike; `RateLimitPropertiesTest.concurrencyPlaceholdersResolveToTheBoundValues` pins
+  that the placeholder's key and default agree with the binding.
 - The whole method runs inside the limit, database calls included, not only the hash. The lockout does too, so a
   rejected login never counts towards the username's lockout. It still used up a token of the per-IP limit, whose
   interceptor runs first.
@@ -491,6 +524,7 @@ Not built yet. What the backend expects of it:
   refresh: a 200 means still logged in, then `/me`; a 401 means the login page.
 - One fetch wrapper sends every request. It adds `Authorization: Bearer`, and on a 401 `auth.invalid_access_token`
   from outside `/api/auth/` it refreshes once and retries once. `auth.invalid_refresh_token` means the session is over.
+  `/api/auth/**` ignores the header, so the wrapper can add it everywhere, expired or not.
 - Parallel requests share one refresh. If each started its own, they would all send the same cookie; rotation lets
   only the first through (`RefreshEndpointTest.sameTokenRefreshedTwiceAtOnceWorksOnlyOnce`), and the rest would log
   the user out.
@@ -507,6 +541,10 @@ Not built yet. What the backend expects of it:
 `user_auth` is split from `users` so ordinary user queries never carry a hash. Exactly one query reads it:
 `UserAuthRepository.findLoginCredentials`, a JPQL join of `User` and `UserAuth` (an entity join with an explicit
 `on`, since `UserAuth.userId` is a plain column, not a mapped relation) into the `LoginCredentials` record.
+
+`UserAuthRepository` extends Spring Data's `Repository` marker, not `JpaRepository`, and declares only `save` and
+that query. `JpaRepository` would add `findAll()` and `findById()`, which return the entity with its hash to any
+caller. A test that needs a hash reads it through SQL (`RegisterEndpointTest`).
 
 Don't add a `@OneToOne` from `User` to `UserAuth`. Hibernate can't lazy-load the side of a one-to-one that doesn't
 hold the foreign key (without bytecode enhancement), so every `User` load would pull the hash back in.

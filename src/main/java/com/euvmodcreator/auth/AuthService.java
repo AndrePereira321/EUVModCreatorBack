@@ -13,6 +13,7 @@ import com.euvmodcreator.auth.repository.LoginCredentials;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
+import com.euvmodcreator.auth.security.RateLimitProperties;
 import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import com.euvmodcreator.ratelimit.Lockout;
@@ -56,9 +57,9 @@ class AuthService {
         this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
-    @ConcurrencyLimit(limitString = "${euv-app.auth.rate-limit.register-concurrency:2}", policy = ThrottlePolicy.REJECT)
+    @ConcurrencyLimit(limitString = RateLimitProperties.REGISTER_CONCURRENCY_LIMIT, policy = ThrottlePolicy.REJECT)
     User register(RegisterRequest registerRequest) {
-        boolean userExists = userRepository.existsByUsernameIgnoreCase(registerRequest.username());
+        boolean userExists = userRepository.usernameExists(registerRequest.username());
         if (userExists) {
             throw new UsernameTakenException();
         }
@@ -68,7 +69,7 @@ class AuthService {
         return transactionOperations.execute(status -> saveNewUser(registerRequest.username(), passwordHash));
     }
 
-    @ConcurrencyLimit(limitString = "${euv-app.auth.rate-limit.login-concurrency:16}", policy = ThrottlePolicy.REJECT)
+    @ConcurrencyLimit(limitString = RateLimitProperties.LOGIN_CONCURRENCY_LIMIT, policy = ThrottlePolicy.REJECT)
     AuthResult login(LoginRequest request, String oldRefreshToken) {
         String lockoutKey = request.username().toLowerCase(Locale.ROOT);
         loginLockout.consume(lockoutKey);
