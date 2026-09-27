@@ -26,9 +26,13 @@ class SessionCleanupJob implements SchedulingConfigurer {
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         String cron = sessionCleanupProperties.cron();
-        if (!ScheduledTaskRegistrar.CRON_DISABLED.equals(cron)) {
-            registrar.addCronTask(new CronTask(this::deleteEndedSessions, new CronTrigger(cron, ZoneOffset.UTC)));
+        if (ScheduledTaskRegistrar.CRON_DISABLED.equals(cron)) {
+            log.info("Session cleanup is switched off");
+            return;
         }
+        registrar.addCronTask(new CronTask(this::deleteEndedSessions, new CronTrigger(cron, ZoneOffset.UTC)));
+        log.info("Session cleanup runs at '{}' UTC and deletes sessions that ended more than {} ago",
+                cron, sessionCleanupProperties.retention());
     }
 
     void deleteEndedSessions() {

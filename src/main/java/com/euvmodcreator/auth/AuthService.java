@@ -19,6 +19,7 @@ import com.euvmodcreator.auth.security.TokenService;
 import com.euvmodcreator.ratelimit.Lockout;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.resilience.annotation.ConcurrencyLimit;
 import org.springframework.resilience.annotation.ConcurrencyLimit.ThrottlePolicy;
@@ -32,6 +33,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 class AuthService {
@@ -66,18 +68,21 @@ class AuthService {
 
         String passwordHash = passwordEncoder.encode(registerRequest.password());
 
-        return transactionOperations.execute(status -> saveNewUser(registerRequest.username(), passwordHash));
+        User user = transactionOperations.execute(status -> saveNewUser(registerRequest.username(), passwordHash));
+        log.info("User {} registered", user.getId());
+        return user;
     }
 
     @ConcurrencyLimit(limitString = RateLimitProperties.LOGIN_CONCURRENCY_LIMIT, policy = ThrottlePolicy.REJECT)
     AuthResult login(LoginRequest request, String oldRefreshToken) {
         String lockoutKey = request.username().toLowerCase(Locale.ROOT);
-        loginLockout.consume(lockoutKey);
+        int attemptsLeft = loginLockout.consume(lockoutKey);
 
         Optional<LoginCredentials> credentials =
                 userAuthRepository.findLoginCredentials(request.username());
 
         if (!passwordMatches(request.password(), credentials)) {
+            logFailedLogin(credentials, attemptsLeft);
             throw new InvalidCredentialsException();
         }
 
@@ -91,25 +96,32 @@ class AuthService {
         String accessToken = tokenService.issueAccessToken(
                 user.getId(), userSession.getId(), userSession.getExpiresAt()
         );
+        log.info("User {} logged in, session {}", user.getId(), userSession.getId());
         return new AuthResult(accessToken, refreshToken);
     }
 
     @Transactional
     AuthResult refresh(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
+            log.debug("Refresh refused: no refresh token cookie");
             throw new InvalidRefreshTokenException();
         }
 
         UserSession userSession = userSessionRepository
                 .findByRefreshTokenHash(tokenService.hashRefreshToken(refreshToken))
-                .orElseThrow(InvalidRefreshTokenException::new);
+                .orElseThrow(() -> {
+                    log.debug("Refresh refused: unknown refresh token");
+                    return new InvalidRefreshTokenException();
+                });
 
         if (userSession.getRevokedAt() != null) {
+            log.debug("Refresh refused: session {} of user {} is revoked", userSession.getId(), userSession.getUserId());
             throw new InvalidRefreshTokenException();
         }
 
         Instant now = Instant.now();
         if (!userSession.getExpiresAt().isAfter(now)) {
+            log.debug("Refresh refused: session {} of user {} has expired", userSession.getId(), userSession.getUserId());
             throw new InvalidRefreshTokenException();
         }
 
@@ -119,18 +131,23 @@ class AuthService {
         String accessToken = tokenService.issueAccessToken(
                 userSession.getUserId(), userSession.getId(), userSession.getExpiresAt()
         );
+        log.debug("Session {} of user {} refreshed", userSession.getId(), userSession.getUserId());
         return new AuthResult(accessToken, newRefreshToken);
     }
 
     @Transactional
     void logout(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
+            log.debug("Logout without a refresh token cookie");
             return;
         }
 
         userSessionRepository.findByRefreshTokenHash(tokenService.hashRefreshToken(refreshToken))
                 .filter(userSession -> userSession.getRevokedAt() == null)
-                .ifPresent(userSession -> userSession.setRevokedAt(Instant.now()));
+                .ifPresentOrElse(userSession -> {
+                    userSession.setRevokedAt(Instant.now());
+                    log.info("User {} logged out, session {}", userSession.getUserId(), userSession.getId());
+                }, () -> log.debug("Logout found no live session for its refresh token"));
     }
 
     private User saveNewUser(String username, String passwordHash) {
@@ -140,6 +157,7 @@ class AuthService {
         try {
             savedUser = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
+            log.debug("A constraint refused the new user, answered as a taken username", e);
             throw new UsernameTakenException();
         }
 
@@ -167,12 +185,26 @@ class AuthService {
         return credentials.isPresent() && matches;
     }
 
+    private static void logFailedLogin(Optional<LoginCredentials> credentials, int attemptsLeft) {
+        String who = credentials.map(c -> "user " + c.user().getId()).orElse("an unknown username");
+        if (attemptsLeft > 0) {
+            log.info("Login failed for {}", who);
+        } else {
+            log.warn("Login failed for {}, which is now locked", who);
+        }
+    }
+
     private void revokeOldSession(String oldRefreshToken) {
         if (oldRefreshToken == null || oldRefreshToken.isBlank()) {
             return;
         }
 
-        userSessionRepository.revokeByRefreshTokenHash(tokenService.hashRefreshToken(oldRefreshToken), Instant.now());
+        int revoked = userSessionRepository.revokeByRefreshTokenHash(
+                tokenService.hashRefreshToken(oldRefreshToken), Instant.now()
+        );
+        if (revoked > 0) {
+            log.debug("Revoked the session of the refresh token cookie this login replaces");
+        }
     }
 
 }

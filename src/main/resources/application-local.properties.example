@@ -11,3 +11,8 @@ euv-app.auth.jwt.secret=
 # --- CORS ---
 # The Vite dev server. Comma-separated if there are more.
 euv-app.web.cors.allowed-origins=http://localhost:5173
+
+# --- Logging ---
+# Our own DEBUG lines: every error response, refused refreshes, rejected access tokens.
+logging.level.com.euvmodcreator=debug
+logging.file.name=logs/euvmodcreator.log

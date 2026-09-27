@@ -2,6 +2,7 @@ package com.euvmodcreator.error;
 
 import com.euvmodcreator.auth.exception.InvalidAccessTokenException;
 import com.euvmodcreator.ratelimit.RateLimitException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -35,6 +36,7 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ProblemDetail handleApiException(ApiException ex) {
+        log.debug("Answered {} {}", ex.getStatus().value(), ex.getCode());
         ProblemDetail problem = problem(ex.getStatus(), ex.getCode(), ex.getMessage());
         if (!ex.getParams().isEmpty()) {
             problem.setProperty("params", ex.getParams());
@@ -51,7 +53,8 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     // A @ConcurrencyLimit(policy = REJECT) method already had as many calls running as it allows.
     @ExceptionHandler(InvocationRejectedException.class)
-    ProblemDetail handleRejectedInvocation(InvocationRejectedException ex) {
+    ProblemDetail handleRejectedInvocation(InvocationRejectedException ex, HttpServletRequest request) {
+        log.warn("Refused {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
         return problem(HttpStatus.SERVICE_UNAVAILABLE, "server_busy", "Server busy, try again shortly");
     }
 

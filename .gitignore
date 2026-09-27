@@ -35,3 +35,7 @@ build/
 ### Local config ###
 # Holds per-machine secrets; copy application-local.properties.example to create it.
 src/main/resources/application-local.properties
+
+### Logs ###
+# Written by the local profile (logging.file.name).
+/logs/

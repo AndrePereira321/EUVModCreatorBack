@@ -86,6 +86,15 @@ class LockoutTest {
         consume("bruno", 5);
     }
 
+    @Test
+    void consumeReturnsTheAttemptsLeftBeforeTheLock() {
+        assertThat(lockout.consume("andre")).isEqualTo(4);
+        consume("andre", 3);
+
+        assertThat(lockout.consume("andre")).isZero();
+        expectLocked("andre", 300);
+    }
+
     // Rounded up, so Retry-After never says 0 while the lock still holds.
     @Test
     void retryAfterRoundsUp() {

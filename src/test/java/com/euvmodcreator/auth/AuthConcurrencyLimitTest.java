@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -52,7 +53,7 @@ class AuthConcurrencyLimitTest {
             .withBean(UserSessionRepository.class, () -> mock(UserSessionRepository.class))
             .withBean(PasswordEncoder.class, this::holdingPasswordEncoder)
             .withBean(TokenService.class, () -> mock(TokenService.class))
-            .withBean(TransactionOperations.class, () -> mock(TransactionOperations.class))
+            .withBean(TransactionOperations.class, this::transactionOperations)
             .withBean(Lockout.class, () -> mock(Lockout.class))
             .withBean(AuthService.class);
 
@@ -137,6 +138,13 @@ class AuthConcurrencyLimitTest {
         when(repository.findLoginCredentials("andre"))
                 .thenReturn(Optional.of(new LoginCredentials(new User(), "{bcrypt}stored")));
         return repository;
+    }
+
+    // Like TransactionTemplate after register's callback: the saved user comes back.
+    private TransactionOperations transactionOperations() {
+        TransactionOperations transactionOperations = mock(TransactionOperations.class);
+        when(transactionOperations.execute(any())).thenAnswer(invocation -> new User());
+        return transactionOperations;
     }
 
     private PasswordEncoder holdingPasswordEncoder() {

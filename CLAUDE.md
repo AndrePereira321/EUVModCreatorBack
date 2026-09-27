@@ -11,6 +11,9 @@ Backend notes too long for this file — the reasoning behind the rules here. Co
 - [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, how a request gets the current
   user, rate limiting, the login lockout and the concurrency limits, the session cleanup job, what the frontend must
   do, where a cache would go, and why login, refresh, logout, usernames and passwords work the way they do.
+- [Logging](.ai-support/logging.md) — levels, the flood rule, what never goes into a log line, the request id and
+  client IP in the MDC, where the log call goes, the daily log files and their rotation, why properties and not a
+  `logback-spring.xml`, and what production's logging still has to decide.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, where validation rules live, keys,
   indexing (including case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not
   recalled.
@@ -83,7 +86,7 @@ whatever stays in one folder (`AuthService`, `AuthProperties`). No project-wide 
 Code every feature shares gets its own top-level package instead: `error/` (API error handling), `validation/`
 (custom Bean Validation constraints), `database/` (`BaseEntity`), `web/` (`WebConfig`, the Spring MVC settings every
 controller shares), `ratelimit/` (`RateLimiter`, `Lockout`, the interceptor and the 429; each feature declares its own
-limits).
+limits), `logging/` (`MdcFilter`).
 After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
 old package stay in `target/` and fail startup with `share the entity name`.
 
@@ -104,7 +107,7 @@ need it: they run on the `test` profile (see Tests).
 **Every property of ours sits under `euv-app.`** (`euv-app.auth.jwt.secret`, `euv-app.web.cors.allowed-origins`), in a
 `@ConfigurationProperties` prefix and in a `${...}` placeholder alike, so it can never clash with a key of Spring's or
 a library's; `ConfigurationPropertiesPrefixTest` checks the records. Production maps each env var by name in
-`application-production.properties` (`JWT_SECRET`, `CORS_ALLOWED_ORIGINS`) rather than relying on relaxed binding's
+`application-production.properties` (`JWT_SECRET`, `CORS_ALLOWED_ORIGINS`, `LOG_FILE`) rather than relying on relaxed binding's
 generated names (`EUVAPP_AUTH_JWT_SECRET`).
 
 Settings that look like candidates for "simplification" and are not:
@@ -194,6 +197,28 @@ Don't reopen these without a reason:
   `DispatcherType.ERROR`, or Tomcat's forward to `/error` turns every 4xx into a 401. The security filters run
   before `DispatcherServlet`, out of the advice's reach: `AccessTokenEntryPoint` passes their 401 to the MVC
   `HandlerExceptionResolver`, so it comes out of `GlobalExceptionHandler` too.
+
+## Logging
+
+The reasoning, and the full list of what never goes into a line, are in [logging](.ai-support/logging.md).
+
+- `@Slf4j`, `{}` placeholders, and an exception as the last argument without a `{}` of its own.
+- ERROR: someone has to act. WARN: handled, look if it repeats. INFO: events production keeps. DEBUG: development
+  detail. The local profile runs `com.euvmodcreator` at DEBUG; the others at INFO.
+- An event a client can trigger at will logs at INFO or above only if a limit caps its rate. 429s and refused
+  refreshes stay at DEBUG.
+- Never log passwords, tokens, hashes, secrets, headers, request bodies, or any string the client typed, such as the
+  username at login. Users and sessions go in by UUID.
+- A record holding a secret overrides `toString` to hide it, with a test: Spring MVC's DEBUG logging prints request
+  bodies through `toString`.
+- Services log domain events; controllers don't. `GlobalExceptionHandler` logs every error response once, so a
+  thrown `ApiException` isn't logged again. Log or rethrow, never both.
+- `MdcFilter` gives every request a `requestId` and `clientIp` in the MDC, ahead of Spring Security's filters.
+  Code running on another thread (`@Async`, an executor) doesn't inherit them.
+- Configured through `logging.*` properties, not a `logback-spring.xml`. Local and production also write a file,
+  rolled daily and kept 15 days (settings in `application.properties`); production's path comes from `LOG_FILE`.
+- `spring.mvc.log-resolved-exception=false` stays: devtools turns it on, and every handled exception is then logged
+  again at WARN.
 
 ## Auth
 

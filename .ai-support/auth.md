@@ -516,6 +516,34 @@ lowercasing, with a lock that rejected attempts extend, without `@Validated`, wi
 `BLOCK` instead of `REJECT`, without the annotation on `register`, with a misspelt property, and without the 503
 handler.
 
+## Logging
+
+The conventions are in [logging](logging.md). What auth writes:
+
+| level | line                                                                  | from                         |
+| ----- | --------------------------------------------------------------------- | ---------------------------- |
+| INFO  | `User {id} registered`                                                | `AuthService.register`       |
+| INFO  | `User {id} logged in, session {id}`                                   | `AuthService.login`          |
+| INFO  | `Login failed for user {id}`, or `for an unknown username`            | `AuthService.login`          |
+| WARN  | the same, `which is now locked`: the failure that locks the username  | `AuthService.login`          |
+| INFO  | `User {id} logged out, session {id}`                                  | `AuthService.logout`         |
+| INFO  | the cleanup schedule at startup, or that it is off; each run's count  | `SessionCleanupJob`          |
+| ERROR | an access token signed with our key, without a UUID `sub` or `sid`    | `AuthenticatedUserConverter` |
+
+At DEBUG: refreshes, refused refreshes and why, logouts that found no live session, the session a login revoked, why
+an access token was refused, and the registration race.
+
+- **Never the submitted username,** though login has it: it may be the password, typed into the wrong field. A
+  known account is logged by its id, an unknown username only as unknown.
+- **Which failure locks.** `Lockout.consume` returns the attempts left, so login knows its failure started the lock
+  when none are left. The attempts refused during the lock are 429s, at DEBUG by the flood rule.
+- **Timing is unchanged.** The failed-login line comes after `matches()` on both paths, one call either way, so it
+  can't tell an unknown username from a wrong password (see [Login](#login)).
+- **Refused refreshes stay at DEBUG,** because refresh has no rate limit (see [logging](logging.md#levels)).
+- **The converter's ERROR can't come from a client.** Only a token signed with the app's key gets that far, so it
+  means a leaked key or an issuing bug (see [The current user](#the-current-user)). It never logs the claim's
+  value, which whoever holds the key chose.
+
 ## The frontend's side
 
 Not built yet. What the backend expects of it:

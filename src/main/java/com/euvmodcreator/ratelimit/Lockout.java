@@ -31,12 +31,17 @@ public class Lockout {
                 .build();
     }
 
-    public void consume(String key) {
+    /**
+     * Counts an attempt, or throws {@link RateLimitException} while the key is locked. Returns the attempts left
+     * before the lock: 0 means this one was the last, and the key locks unless {@link #clear} runs.
+     */
+    public int consume(String key) {
         Instant now = clock.instant();
         Attempts after = attempts.asMap().compute(key, (k, before) -> next(before, now));
         if (after.count() > maxAttempts) {
             throw new RateLimitException(Math.ceilDiv(Duration.between(now, after.resetAt()).toMillis(), 1000L));
         }
+        return maxAttempts - after.count();
     }
 
     public void clear(String key) {
