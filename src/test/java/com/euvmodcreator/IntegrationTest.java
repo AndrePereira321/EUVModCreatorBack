@@ -1,5 +1,7 @@
 package com.euvmodcreator;
 
+import com.euvmodcreator.ratelimit.Lockout;
+import com.euvmodcreator.ratelimit.RateLimiter;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -32,6 +34,12 @@ public abstract class IntegrationTest {
     @Autowired
     private JdbcClient jdbcClient;
 
+    @Autowired
+    private List<RateLimiter> rateLimiters;
+
+    @Autowired
+    private List<Lockout> lockouts;
+
     @DynamicPropertySource
     static void jwtSecret(DynamicPropertyRegistry registry) {
         registry.add("auth.jwt.secret", () -> JWT_SECRET);
@@ -51,6 +59,13 @@ public abstract class IntegrationTest {
         if (!tables.isEmpty()) {
             jdbcClient.sql("truncate table " + String.join(", ", tables) + " cascade").update();
         }
+    }
+
+    // Every request comes from 127.0.0.1 and the app is shared, so counts would otherwise carry over between tests.
+    @BeforeEach
+    void resetRateLimits() {
+        rateLimiters.forEach(RateLimiter::reset);
+        lockouts.forEach(Lockout::reset);
     }
 
     private static String randomBase64Key() {

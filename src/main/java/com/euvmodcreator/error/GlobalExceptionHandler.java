@@ -1,14 +1,11 @@
 package com.euvmodcreator.error;
 
+import com.euvmodcreator.ratelimit.RateLimitException;
 import jakarta.validation.ConstraintViolation;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -18,11 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.*;
 
 /**
  * Turns every exception that leaves a controller into an RFC 9457 Problem Details body carrying a {@code code}.
@@ -62,6 +55,13 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         }
         log.error("Unhandled exception", ex);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "internal_error", "Unexpected server error");
+    }
+
+    @ExceptionHandler(RateLimitException.class)
+    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(handleApiException(ex));
     }
 
     @Override

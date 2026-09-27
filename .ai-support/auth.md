@@ -102,7 +102,8 @@ Hashes come from the delegating `PasswordEncoder`, prefixed `{bcrypt}`; see
 ## Register
 
 201 with the new user, and no login: sessions and cookies are created by login only, so the frontend calls login
-next. A taken username is 409 `auth.username_taken` — that necessarily reveals the name exists.
+next. A taken username is 409 `auth.username_taken` — that necessarily reveals the name exists. Too many
+registrations from one IP get 429 `rate_limited` first (see [Rate limiting](#rate-limiting)).
 
 **BCrypt runs outside the transaction.** A transaction takes a pooled connection when it starts — Hibernate's `begin()`
 calls `setAutoCommit(false)` on it — and holds it until commit. BCrypt takes about 80 ms and production's pool has 4
@@ -123,7 +124,8 @@ check stays anyway: it answers a taken name without spending a hash on it.
 ## Login
 
 Success returns the access token and starts a session (see [Refresh tokens](#refresh-tokens)). Failure writes nothing
-and sets no cookie.
+and sets no cookie. Too many attempts, from one IP or on one username, get 429 `rate_limited` before the password is
+checked (see [Rate limiting](#rate-limiting)).
 
 One 401 `auth.invalid_credentials` for both an unknown username and a wrong password. Two different answers would
 tell an attacker which usernames exist, so they could spend their guesses only on real accounts. (Register's 409
@@ -283,8 +285,8 @@ When a measurement asks for a cache, Spring's cache abstraction adds one without
 
 - `@EnableCaching` once, `@Cacheable("users")` on `findUser`, and `@CacheEvict` on every method that changes a user.
   Eviction is the part that goes wrong.
-- The provider comes from the classpath: Caffeine (`spring-boot-starter-cache` + `caffeine`,
-  `spring.cache.caffeine.spec`) for one instance, Redis (`spring-boot-starter-data-redis`,
+- The provider comes from the classpath: Caffeine (`spring-boot-starter-cache` + `caffeine`, which the pom already
+  has for rate limiting; `spring.cache.caffeine.spec`) for one instance, Redis (`spring-boot-starter-data-redis`,
   `spring.cache.redis.time-to-live`) for several. With neither, Boot falls back to an unbounded `ConcurrentHashMap`
   with no expiry — never in production.
 - `@Cacheable` works through a proxy, like `@Transactional`: a call from another method of the same class skips it.
@@ -294,6 +296,84 @@ When a measurement asks for a cache, Spring's cache abstraction adds one without
   test, not the cache.
 
 The first real candidate is the per-request session check above, not `/me`, because it would run on every request.
+
+## Rate limiting
+
+Three limits, in front of the two endpoints that run BCrypt:
+
+| limit          | key                | default                      | enforced by                                   |
+| -------------- | ------------------ | ---------------------------- | --------------------------------------------- |
+| login requests | client IP          | 10 per minute                | `RateLimiter`, through `RateLimitInterceptor` |
+| registrations  | client IP          | 5 per hour                   | `RateLimiter`, through `RateLimitInterceptor` |
+| failed logins  | submitted username | 5, then locked for 5 minutes | `Lockout`, in `AuthService.login`             |
+
+The numbers are `auth.rate-limit.*` settings in `RateLimitProperties`, with these defaults in code.
+
+Every rejection is 429 `rate_limited`, with `params.retryAfterSeconds` and the same number in a `Retry-After` header.
+`ApiException` carries no headers, so `RateLimitException` has its own handler in `GlobalExceptionHandler`; Spring
+picks the handler for the closest exception type, so it wins over the `ApiException` one. `RateLimitConfig` in
+`auth/security/` builds the limiters from `RateLimitProperties` and registers the interceptors. `ratelimit/` holds
+only the generic pieces, so another feature can declare its own limits the same way.
+
+**Per IP: a token bucket, in an interceptor.** Bucket4j with greedy refill: capacity is the burst, and tokens come back
+one at a time (one every 6 seconds at 10 per minute). It throttles instead of locking because an IP is shared — a
+school, a LAN party, a mobile carrier's NAT — so it only has to stop one machine hammering. A `HandlerInterceptor`, not
+a servlet filter: an exception from `preHandle` goes through the MVC exception resolvers into `GlobalExceptionHandler`,
+one from a filter doesn't. `preHandle` runs before the body is parsed, so malformed requests cost a token too. CORS
+preflights never reach it: Spring Security's CORS filter answers them. The path patterns are raw URLs, `/api` included.
+
+**Per username: a lockout, in the service.** 5 failed logins within 5 minutes lock the username for 5 minutes from the
+5th; a successful login clears the count. It sits in `AuthService` because only there is the username parsed and the
+outcome known.
+
+- Keyed on the username as submitted, lowercased with `Locale.ROOT`, never the user id. Keyed on the id, only real
+  accounts could be locked, and a 429 would confirm the name exists — the enumeration the dummy hash closes for timing.
+- Checked before BCrypt: a locked username costs no hashing, and a correct password can't get through the lock.
+- Counted up front and forgiven on success, not checked first and counted after a failure. `Lockout.consume` reads
+  and increments the count in one `asMap().compute`, which Caffeine runs atomically per key. With a check and a
+  separate count, concurrent guesses could all pass the check before any failure was recorded.
+- The lock starts at the 5th attempt; attempts rejected during it don't extend it.
+
+The trade-off: anyone can lock an account for 5 minutes by failing with its username. The lock is short, and the
+per-IP limit caps how many accounts one machine can keep locked. NIST SP 800-63B-4 also caps consecutive failures on
+an account at 100, after which the password is disabled; that needs a way back in (password reset), so it waits for
+the email decision.
+
+Measured against the running app: five wrong passwords for `GhostUser` got 401, the 6th got 429 with
+`Retry-After: 300`, and `ghostuser` was locked too. The 11th login from one IP within a minute got 429 with
+`Retry-After: 4`.
+
+**Storage: Caffeine, in each instance.** Keys come from the client, so every cache has a `maximumSize`: a plain map
+would grow with each rotated IP or username until the heap ran out. Expiry never drops state that still matters — a
+bucket expires after `period` idle, when it is full again, and a lockout entry `lockDuration` after its last write,
+never before its `resetAt`. A restart resets every limit, which is harmless.
+
+With several instances, each would keep its own counts and multiply the limits. Bucket4j's `ProxyManager` moves
+buckets into shared storage; PostgreSQL (`bucket4j_jdk17-postgresql`) fits, since one round trip is nothing next to
+BCrypt, but it has no TTL, so a scheduled job must call `removeExpired`. `Lockout` isn't a bucket and would need its
+own table. Callers only see `consume`, `clear` and `reset`, so the change stays inside `ratelimit/`.
+
+**Not built yet:**
+
+- A global cap on concurrent BCrypt: `@ConcurrencyLimit(policy = REJECT)` (Spring Framework 7) on `login` and
+  `register`, mapped to 503. Per-key limits don't stop a flood from many IPs.
+- IPv6 keys on the /64 prefix: one connection usually owns a whole /64, so a full address is free to rotate.
+
+**Tests.** `IntegrationTest` resets every `RateLimiter` and `Lockout` before each test: all tests come from 127.0.0.1
+and share one app, so the counts would carry over and turn later tests into 429s (35 did before the reset).
+`Lockout` reads the time from a `Clock`, so `LockoutTest` moves time instead of sleeping through a 5-minute lock.
+
+- `LockoutTest`, `RateLimiterTest`: the lock window, its start at the last allowed attempt, rejected attempts not
+  extending it, `Retry-After` rounding up, `clear` and `reset`.
+- `AuthServiceTest`: the lockout runs before BCrypt, on the lowercased username, and only a success clears it.
+- `LoginEndpointTest`, `RegisterEndpointTest`: every limit over HTTP, including the correct password refused while
+  locked, a different casing locked too, an unknown username locked like a real one, and invalid requests using up
+  the per-IP limit.
+- `RateLimitPropertiesTest`: the defaults, and a zero capacity or duration stopping startup.
+- `GlobalExceptionHandlerTest`: the 429 body and `Retry-After`.
+
+Each was checked against a broken version: without the `clear`, without the lowercasing, with a lock that rejected
+attempts extend, and without `@Validated`, the matching tests failed.
 
 ## The frontend's side
 
@@ -310,6 +390,7 @@ Not built yet. What the backend expects of it:
   fetch needs `credentials: 'include'`. The backend half is built: `WebConfig` allows the origins in
   `web.cors.allowed-origins` with credentials. Without both, the browser ignores the cookie. Check then that the
   `Secure` cookie survives plain `http://localhost` in the browsers used for development.
+- A 429 `rate_limited` is not a logout: show "try again in `retryAfterSeconds`" and keep the session.
 
 ## Where password hashes are read
 
@@ -328,7 +409,10 @@ hold the foreign key (without bytecode enhancement), so every `User` load would 
   alongside a second one); register allows 8. Raising it affects only new passwords, since login doesn't apply
   register's rules.
 - **Before going public:**
-  - Rate limiting on login: nothing limits password guessing yet.
+  - Behind a reverse proxy, set `server.forward-headers-strategy=native` (and `server.tomcat.remoteip.internal-proxies`
+    if the proxy's address isn't private). Otherwise `getRemoteAddr()` is the proxy, and every client shares one
+    rate-limit bucket. Never read `X-Forwarded-For` by hand: the client writes it, so a fake one per request gets a
+    fresh bucket each time.
   - XSS discipline and a Content-Security-Policy in the frontend. `HttpOnly` stops a script stealing the refresh
     cookie, not using it: injected code can call `/refresh` itself while the tab is open.
   - HTTPS everywhere, and the frontend and the API on the same site (`app.example.com`, `api.example.com`). The

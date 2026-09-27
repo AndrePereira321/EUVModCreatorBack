@@ -15,6 +15,8 @@ import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
 import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
+import com.euvmodcreator.ratelimit.Lockout;
+import com.euvmodcreator.ratelimit.RateLimitException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -74,6 +76,9 @@ class AuthServiceTest {
 
     @Mock
     private TransactionOperations transactionOperations;
+
+    @Mock
+    private Lockout loginLockout;
 
     @InjectMocks
     private AuthService authService;
@@ -200,6 +205,48 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
 
         verifyNoInteractions(tokenService, userSessionRepository);
+    }
+
+    // A locked username costs no hashing, and a correct password can't get through the lock.
+    @Test
+    void lockedUsernameIsRejectedBeforeBcrypt() {
+        doThrow(new RateLimitException(300)).when(loginLockout).consume("andre");
+
+        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(RateLimitException.class);
+
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+        verifyNoInteractions(userAuthRepository, tokenService, userSessionRepository);
+    }
+
+    // Keyed on the name as typed, lowercased, never the user id: an unknown name locks exactly like a real one.
+    @Test
+    void lockoutKeyIsTheLowercasedUsername() {
+        when(userAuthRepository.findLoginCredentials("AnDrE")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("AnDrE", "password123")))
+                .isInstanceOf(InvalidCredentialsException.class);
+
+        verify(loginLockout).consume("andre");
+    }
+
+    @Test
+    void successfulLoginClearsTheFailedAttempts() {
+        stubSuccessfulLogin();
+
+        authService.login(LOGIN);
+
+        verify(loginLockout).clear("andre");
+    }
+
+    @Test
+    void failedLoginKeepsItsAttemptCounted() {
+        when(userAuthRepository.findLoginCredentials("andre"))
+                .thenReturn(Optional.of(new LoginCredentials(new User(), REAL_HASH)));
+
+        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
+
+        verify(loginLockout).consume("andre");
+        verify(loginLockout, never()).clear(anyString());
     }
 
     @Test

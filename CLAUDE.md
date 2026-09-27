@@ -9,8 +9,8 @@ Backend notes too long for this file — the reasoning behind the rules here. Co
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
 - [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, how a request gets the current
-  user, what the frontend must do, where a cache would go, and why login, refresh, logout, usernames and passwords
-  work the way they do.
+  user, rate limiting and the login lockout, what the frontend must do, where a cache would go, and why login,
+  refresh, logout, usernames and passwords work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, where validation rules live, keys,
   indexing (including case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not
   recalled.
@@ -32,7 +32,9 @@ normally runs the app from IntelliJ rather than the terminal.
 ## Stack
 
 Java 25 · Spring Boot 4.1.1 (Spring Framework 7) · Spring Security 7 · Maven wrapper 3.9.16 · PostgreSQL 17 ·
-Flyway 12 · Hibernate 7 · Lombok.
+Flyway 12 · Hibernate 7 · Lombok · Bucket4j 8.20 · Caffeine 3.
+
+Bucket4j is the one dependency Boot doesn't manage: its version is pinned in the pom's `bucket4j.version` property.
 
 **Spring Boot 4 renamed the starters, and everything written online still uses the Boot 3 names.** Do not "fix"
 the pom to match a tutorial:
@@ -72,14 +74,16 @@ auth/
 ├─ exception/   <- the feature's ApiException subclasses
 ├─ model/       <- records a service hands its controller, never an HTTP body (AuthResult, UserSummary)
 ├─ repository/  <- Spring Data interfaces, and the records their queries return (LoginCredentials)
-└─ security/    <- SecurityConfig, AuthProperties, TokenService, the current-user principal, the 401 entry point
+└─ security/    <- SecurityConfig, AuthProperties, TokenService, the current-user principal, the 401 entry point,
+                   the rate limits (RateLimitConfig, RateLimitProperties)
 ```
 
 Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
 whatever stays in one folder (`AuthService`, `AuthProperties`). No project-wide `controller/` or `service/` packages.
 Code every feature shares gets its own top-level package instead: `error/` (API error handling), `validation/`
 (custom Bean Validation constraints), `database/` (`BaseEntity`), `web/` (`WebConfig`, the Spring MVC settings every
-controller shares).
+controller shares), `ratelimit/` (`RateLimiter`, `Lockout`, the interceptor and the 429; each feature declares its own
+limits).
 After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
 old package stay in `target/` and fail startup with `share the entity name`.
 
@@ -138,6 +142,8 @@ Two kinds, both under `./mvnw test`:
 - A random JWT secret per run through `@DynamicPropertySource`, so no key sits in a committed file.
 - `@BeforeEach` truncates every table in the schema except Flyway's. `@Transactional` rollback can't replace
   this: with a real port the server commits each request on its own thread.
+- `@BeforeEach` also resets every `RateLimiter` and `Lockout` bean: every request comes from 127.0.0.1, so the
+  counts would otherwise carry over into later tests as 429s. A new limiter bean is covered without editing this.
 - All subclasses share one started app (Spring caches the context), so a new test class costs no startup time
   unless it changes the configuration — avoid `@MockitoBean` and extra properties in integration tests.
 
@@ -169,7 +175,8 @@ Don't reopen these without a reason:
   The browser's CORS error reads like an auth failure and is not.
 - **Every `@RestController` sits under `/api`, added once by `WebConfig.configurePathMatch`.** Controllers map
   without it (`@RequestMapping("/auth")`). What sees the raw URL still writes it: `SecurityConfig`'s matchers, the
-  cookie path, and the tests. Not `server.servlet.context-path`, which would move `/error` and everything else too.
+  cookie path, the rate-limit interceptors' path patterns, and the tests. Not `server.servlet.context-path`, which
+  would move `/error` and everything else too.
 - **Errors are RFC 9457 Problem Details carrying a `code`; the frontend translates, the backend never does.**
   `GlobalExceptionHandler` (`@RestControllerAdvice`) gives every error response a stable `code` — `snake_case`,
   namespaced by feature for domain errors (`auth.username_taken`), derived from the status for Spring MVC's own
@@ -209,6 +216,8 @@ before changing anything in `auth/`.
 - Username lookups filter on `lower(username)` in a hand-written `@Query`; a derived `...IgnoreCase` compiles to
   `upper()` and skips the index.
 - No `@OneToOne` from `User` to `UserAuth`: it would load the password hash with every user.
+- The login lockout keys on the submitted username, lowercased, never the user id — keyed on the id, a 429 would
+  confirm an account exists — and runs before BCrypt.
 
 ## IntelliJ gotchas
 

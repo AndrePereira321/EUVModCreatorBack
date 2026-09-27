@@ -15,6 +15,7 @@ import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
 import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
+import com.euvmodcreator.ratelimit.Lockout;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionOperations;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,6 +44,8 @@ class AuthService {
     private final TokenService tokenService;
 
     private final TransactionOperations transactionOperations;
+
+    private final Lockout loginLockout;
 
     private String dummyHash;
 
@@ -62,12 +66,17 @@ class AuthService {
     }
 
     AuthResult login(LoginRequest request) {
+        String lockoutKey = request.username().toLowerCase(Locale.ROOT);
+        loginLockout.consume(lockoutKey);
+
         Optional<LoginCredentials> credentials =
                 userAuthRepository.findLoginCredentials(request.username());
 
         if (!passwordMatches(request.password(), credentials)) {
             throw new InvalidCredentialsException();
         }
+
+        loginLockout.clear(lockoutKey);
 
         User user = credentials.orElseThrow().user();
         RefreshToken refreshToken = tokenService.newRefreshToken();

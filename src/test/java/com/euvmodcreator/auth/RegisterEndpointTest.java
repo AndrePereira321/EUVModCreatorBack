@@ -8,6 +8,7 @@ import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -99,6 +100,25 @@ class RegisterEndpointTest extends IntegrationTest {
 
         assertThat(userRepository.count()).isEqualTo(1);
         assertThat(userAuthRepository.count()).isEqualTo(1);
+    }
+
+    // 5 an hour from one IP, one back every 12 minutes; the refused request saves nothing.
+    @Test
+    void sixthRegistrationFromOneIpWithinAnHourIsRateLimited() {
+        for (int i = 0; i < 5; i++) {
+            register("player_" + i, "password123").expectStatus().isCreated();
+        }
+
+        register("player_5", "password123")
+                .expectStatus().isEqualTo(HttpStatus.TOO_MANY_REQUESTS)
+                .expectHeader().value(HttpHeaders.RETRY_AFTER,
+                        retryAfter -> assertThat(Long.parseLong(retryAfter)).isBetween(1L, 720L))
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("rate_limited")
+                .jsonPath("$.params.retryAfterSeconds").isNumber();
+
+        assertThat(userRepository.count()).isEqualTo(5);
     }
 
     @Test

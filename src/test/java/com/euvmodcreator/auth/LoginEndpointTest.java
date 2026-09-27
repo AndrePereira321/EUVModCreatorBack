@@ -9,6 +9,8 @@ import com.euvmodcreator.auth.repository.UserSessionRepository;
 import com.euvmodcreator.auth.security.TokenService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -162,6 +164,81 @@ class LoginEndpointTest extends IntegrationTest {
                 .jsonPath("$.code").isEqualTo("validation_failed")
                 .jsonPath("$.errors[?(@.field == 'username' && @.code == 'NotBlank')]").exists()
                 .jsonPath("$.errors[?(@.field == 'password' && @.code == 'NotBlank')]").exists();
+    }
+
+    // The sixth attempt is refused before the password is checked, so even the right one can't get through.
+    @Test
+    void fiveFailedLoginsLockTheUsername() {
+        register("Andre", "password123");
+        failLogins("Andre", 5);
+
+        expectRateLimited(login("Andre", "wrong-password"), 300);
+        expectRateLimited(login("Andre", "password123"), 300);
+    }
+
+    @Test
+    void lockIgnoresUsernameCase() {
+        register("Andre", "password123");
+        failLogins("Andre", 5);
+
+        expectRateLimited(login("aNDRE", "password123"), 300);
+    }
+
+    // Keyed on the submitted name, so a 429 can't reveal which usernames exist.
+    @Test
+    void unknownUsernameIsLockedTheSameWay() {
+        failLogins("nobody_here", 5);
+
+        expectRateLimited(login("nobody_here", "wrong-password"), 300);
+    }
+
+    // Without the clear, the success would be the fifth counted attempt and the next failure a 429.
+    @Test
+    void successfulLoginClearsTheFailedAttempts() {
+        register("Andre", "password123");
+        failLogins("Andre", 4);
+        successfulLogin("Andre", "password123");
+
+        failLogins("Andre", 4);
+    }
+
+    // A different username each time, so only the per-IP limit applies: 10 a minute, one back every 6 seconds.
+    @Test
+    void eleventhLoginFromOneIpWithinAMinuteIsRateLimited() {
+        for (int i = 0; i < 10; i++) {
+            login("nobody_" + i, "wrong-password").expectStatus().isUnauthorized();
+        }
+
+        expectRateLimited(login("nobody_10", "wrong-password"), 6);
+    }
+
+    // The interceptor runs before the body is parsed, so rejected requests use up the limit too.
+    @Test
+    void invalidRequestsCountTowardsTheIpLimit() {
+        for (int i = 0; i < 10; i++) {
+            login("", "").expectStatus().isBadRequest();
+        }
+
+        expectRateLimited(login("", ""), 6);
+    }
+
+    private void failLogins(String username, int times) {
+        for (int i = 0; i < times; i++) {
+            login(username, "wrong-password")
+                    .expectStatus().isUnauthorized()
+                    .expectBody()
+                    .jsonPath("$.code").isEqualTo("auth.invalid_credentials");
+        }
+    }
+
+    private static void expectRateLimited(RestTestClient.ResponseSpec response, long maxRetryAfterSeconds) {
+        response.expectStatus().isEqualTo(HttpStatus.TOO_MANY_REQUESTS)
+                .expectHeader().value(HttpHeaders.RETRY_AFTER,
+                        retryAfter -> assertThat(Long.parseLong(retryAfter)).isBetween(1L, maxRetryAfterSeconds))
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("rate_limited")
+                .jsonPath("$.params.retryAfterSeconds").isNumber();
     }
 
     private UUID register(String username, String password) {

@@ -1,10 +1,13 @@
 package com.euvmodcreator.error;
 
+import com.euvmodcreator.ratelimit.RateLimitException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -56,6 +59,19 @@ class GlobalExceptionHandlerTest {
                 .extractingPath("$.code").isEqualTo("internal_error");
     }
 
+    // ApiException carries no headers, so the rate limit has its own handler adding Retry-After.
+    @Test
+    void rateLimitIs429WithRetryAfter() {
+        MvcTestResult result = mvc.get().uri("/rate-limited").exchange();
+
+        assertThat(result)
+                .hasStatus(HttpStatus.TOO_MANY_REQUESTS)
+                .hasHeader(HttpHeaders.RETRY_AFTER, "42")
+                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(result).bodyJson().extractingPath("$.code").isEqualTo("rate_limited");
+        assertThat(result).bodyJson().extractingPath("$.params.retryAfterSeconds").isEqualTo(42);
+    }
+
     @Test
     void springMvcErrorGetsACodeFromItsStatus() {
         assertThat(mvc.post().uri("/plain"))
@@ -88,6 +104,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/constraint")
         void constraint() {
             throw new DataIntegrityViolationException("duplicate key value violates unique constraint");
+        }
+
+        @GetMapping("/rate-limited")
+        void rateLimited() {
+            throw new RateLimitException(42);
         }
 
         @GetMapping("/unexpected")
