@@ -9,8 +9,8 @@ Backend notes too long for this file — the reasoning behind the rules here. Co
 **Keep this index in sync.** A file added, renamed or deleted in `.ai-support/` is reflected here in the same change.
 
 - [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, how a request gets the current
-  user, rate limiting and the login lockout, what the frontend must do, where a cache would go, and why login,
-  refresh, logout, usernames and passwords work the way they do.
+  user, rate limiting and the login lockout, the session cleanup job, what the frontend must do, where a cache would
+  go, and why login, refresh, logout, usernames and passwords work the way they do.
 - [Schema conventions](.ai-support/schema-conventions.md) — column types, where validation rules live, keys,
   indexing (including case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not
   recalled.
@@ -60,7 +60,7 @@ src/main/resources/
 └─ db/migration/                        <- Flyway migrations, V2026.09.08_001__snake_case.sql
 src/test/java/com/euvmodcreator/        <- mirrors main's packages; IntegrationTest is the base for HTTP tests
 src/test/resources/
-└─ application-test.properties          <- test profile: the `test` schema, no JWT key (generated per run)
+└─ application-test.properties          <- test profile: the `test` schema, no JWT key (generated per run), no cron
 ```
 
 **Package by feature, then by role inside the feature.** Top-level packages are features (`auth`); inside one, the
@@ -206,6 +206,9 @@ before changing anything in `auth/`.
 - Login revokes the session of the cookie it replaces, after the password check, through the bulk
   `revokeByRefreshTokenHash`. Not `findByRefreshTokenHash`: its `@Lock` needs a transaction, and `login` has none.
 - A bulk `@Modifying` update sets `updatedAt` itself: `@UpdateTimestamp` only fires when Hibernate flushes an entity.
+- `SessionCleanupJob` deletes sessions that ended more than `auth.session-cleanup.retention` (30d) ago, daily at
+  05:00 UTC. Its cron lives in `SessionCleanupProperties`, so the job registers it through `SchedulingConfigurer`:
+  `@Scheduled` can't read a bean. Tests set the cron to `-` and call the job directly.
 - Logout never fails: 204 and a cleared cookie, whatever the token. The clearing cookie comes from the same
   `refreshTokenCookie` builder as the real one; with a different name or path the browser keeps the real one.
 - A controller gets the caller as `@CurrentUser AuthenticatedUser` (user id from `sub`, session id from `sid`) and

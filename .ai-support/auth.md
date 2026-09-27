@@ -231,6 +231,43 @@ which needs to know who the user is — the access token — and isn't built.
 **Access tokens outlive it** by up to `access-token-ttl`; the frontend throws its copy away. The same accepted gap as
 at the end of a session (see [Refresh](#refresh)).
 
+## Session cleanup
+
+`SessionCleanupJob` deletes sessions that ended — expired, or revoked by a logout or a later login — more than 30 days
+ago. Younger ones stay, so recent sign-ins and logouts can still be looked up. Nothing else depends on the rows going:
+refresh already rejects an expired or revoked session.
+
+| setting (`SessionCleanupProperties`) | default       | rule                                                          |
+| ------------------------------------ | ------------- | ------------------------------------------------------------- |
+| `auth.session-cleanup.cron`          | `0 0 5 * * *` | Spring cron, 6 fields with seconds first; `-` switches it off |
+| `auth.session-cleanup.retention`     | `30d`         | not negative: a negative one would delete live sessions       |
+
+**Daily at 05:00 UTC.** In UTC, so the time doesn't move with the server's zone or daylight saving. No hour has all of
+Europe and the Americas asleep; at 05:00 UTC it is 06:00–07:00 in Central Europe, 00:00–01:00 in New York and 02:00
+in São Paulo, and only the US West Coast is still in its evening (21:00–22:00). A run takes milliseconds anyway.
+
+**Registered in code, not with `@Scheduled`.** `@Scheduled(cron = ...)` reads a `${...}` placeholder, never a bean,
+so its cron couldn't come from `SessionCleanupProperties`. The job implements `SchedulingConfigurer` instead: Spring
+calls its `configureTasks` at startup, and it adds a `CronTask` with a UTC `CronTrigger` unless the cron is `-`.
+`@EnableScheduling` on `EuvModCreatorBackApplication` switches scheduling on. A malformed cron stops startup with
+`Cron expression must consist of 6 fields`, which is what a pasted 5-field Unix cron gets.
+
+**What it costs.** One bulk `DELETE` (`UserSessionRepository.deleteEndedBefore`) with no entities loaded, so the JVM's
+share is one pooled connection for a few milliseconds. Between runs the scheduler holds a timer and uses no CPU; each
+run gets a new thread, a virtual one since virtual threads are on (Boot's `SimpleAsyncTaskScheduler`). The `DELETE`
+scans the whole table, as nothing indexes `expires_at` or `revoked_at`. Measured on the dev machine: 100,000 sessions
+(36 MB with indexes), 66,667 of them deleted, 79 ms. An index would cost something on every login and refresh to save
+milliseconds once a day. Autovacuum makes the freed space reusable in the background.
+
+**Several instances** would each run it. The delete is idempotent, so the second run finds nothing; ShedLock would make
+it exclusive if that ever mattered. A run missed while the app is down isn't made up; the next one deletes more.
+
+**Tests.** `application-test.properties` sets the cron to `-`, and `SessionCleanupJobTest` calls the job directly:
+sessions that expired or were revoked 31 days ago go, 29 days ago stay. `SessionCleanupSettingsTest` binds the
+settings through an `ApplicationContextRunner`, since the integration tests never see the real cron: 05:00 UTC from a
+New York clock, an override, `-`, and a Unix cron and a negative retention both stopping startup. Each check failed
+against a broken version: no UTC zone, either condition dropped, the retention ignored.
+
 ## The current user
 
 A protected request knows who is calling and from which session without touching the database:
@@ -444,6 +481,5 @@ hold the foreign key (without bytecode enhancement), so every `User` load would 
     `CORS_ALLOWED_ORIGINS` to the frontend's origin, or empty if the API serves the frontend itself.
   - A `JWT_SECRET` of 32 random bytes: whoever holds it can sign a token for any user. Changing it only invalidates
     access tokens, and clients refresh silently.
-- **Later:** "log out everywhere", a cleanup job for expired and revoked sessions, a Have I Been Pwned check on new
-  passwords, the per-request session check (see [The current user](#the-current-user)), reuse detection
-  (`previous_token_hash`, see [Refresh](#refresh)).
+- **Later:** "log out everywhere", a Have I Been Pwned check on new passwords, the per-request session check (see
+  [The current user](#the-current-user)), reuse detection (`previous_token_hash`, see [Refresh](#refresh)).

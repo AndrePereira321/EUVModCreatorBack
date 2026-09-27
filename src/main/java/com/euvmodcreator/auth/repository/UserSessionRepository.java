@@ -24,4 +24,9 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
             where s.refreshTokenHash = :refreshTokenHash and s.revokedAt is null
             """)
     int revokeByRefreshTokenHash(String refreshTokenHash, Instant now);
+
+    @Modifying
+    @Transactional
+    @Query("delete from UserSession s where s.expiresAt < :cutoff or s.revokedAt < :cutoff")
+    int deleteEndedBefore(Instant cutoff);
 }
