@@ -2,6 +2,7 @@ package com.euvmodcreator.ratelimit;
 
 import com.euvmodcreator.error.ApiException;
 import lombok.Getter;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 
 import java.util.Map;
@@ -15,6 +16,11 @@ public class RateLimitException extends ApiException {
         super(HttpStatus.TOO_MANY_REQUESTS, "rate_limited", "Too many requests",
                 Map.of("retryAfterSeconds", retryAfterSeconds));
         this.retryAfterSeconds = retryAfterSeconds;
+    }
+
+    @Override
+    protected void addHeaders(HttpHeaders headers) {
+        headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds));
     }
 
 }

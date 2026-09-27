@@ -13,6 +13,8 @@ Backend notes too long for this file. The convention, and the rule to keep this 
   rule, the full never-log list, the MDC request id, log files and rotation.
 - [Schema conventions](.ai-support/schema-conventions.md) — **read before writing a Flyway migration.** Column
   types, keys, indexing, case-insensitive uniqueness, hash storage. Figures measured, not recalled.
+- [Modules](.ai-support/modules.md) — **read before adding a top-level package or having one feature use another.**
+  What Spring Modulith checks and why, referencing another feature's data, and the layouts turned down.
 
 ## Commands
 
@@ -30,9 +32,11 @@ app from IntelliJ.
 ## Stack
 
 Java 25 · Spring Boot 4.1.1 (Spring Framework 7) · Spring Security 7 · Maven wrapper 3.9.16 · PostgreSQL 17 ·
-Flyway 12 · Hibernate 7 · Lombok · Bucket4j 8.20 · Caffeine 3.
+Flyway 12 · Hibernate 7 · Lombok · Bucket4j 8.20 · Caffeine 3 · Spring Modulith 2.1 (tests only).
 
-Bucket4j is the one dependency Boot doesn't manage: its version is pinned in the pom's `bucket4j.version` property.
+Boot doesn't manage Bucket4j or Spring Modulith: their versions are pinned in the pom's `bucket4j.version` and
+`spring-modulith.version` properties. Modulith comes through its BOM; keep it on the line built for the Boot version
+in use (2.1 for Boot 4.1).
 
 **Spring Boot 4 renamed the starters, and everything written online still uses the Boot 3 names.** Do not "fix"
 the pom to match a tutorial:
@@ -59,17 +63,19 @@ src/test/resources/
 ```
 
 **Package by feature, then by role inside the feature.** Top-level packages are features (`auth`); inside one, the
-controller and service sit at the feature root, and the rest splits into role sub-packages:
+controllers, services, config and the types other features may use sit at the feature root, and the rest splits into
+role sub-packages:
 
 ```
 auth/
-├─ AuthController, AuthService, UserController, UserService
+├─ AuthController, AuthService, UserController, UserService, RateLimitConfig, …
+├─ AuthenticatedUser, CurrentUser   <- auth's API: what other features may use
 ├─ dto/         <- request and response records, never entities
 ├─ entity/      <- @Entity classes
 ├─ exception/   <- the feature's ApiException subclasses
 ├─ model/       <- records a service hands its controller, never an HTTP body (AuthResult, UserSummary)
 ├─ repository/  <- Spring Data interfaces, and the records their queries return (LoginCredentials)
-└─ security/    <- SecurityConfig, tokens, the current-user principal, auth's rate limits
+└─ security/    <- SecurityConfig, tokens, turning a JWT into the current user
 ```
 
 Java has no sub-package visibility, so anything used across these folders must be `public`; keep package-private
@@ -80,6 +86,11 @@ controller shares), `ratelimit/` (`RateLimiter`, `Lockout`, the interceptor and 
 limits), `logging/` (`MdcFilter`).
 After moving classes between packages, run `./mvnw clean` (or Rebuild in IntelliJ): stale `.class` files from the
 old package stay in `target/` and fail startup with `share the entity name`.
+
+**Spring Modulith checks the boundaries** ([modules](.ai-support/modules.md)). Each top-level package is a module:
+its root package is its API, its sub-packages are internal. `ModularityTest` fails on a cycle between modules or on
+one module using another's sub-package. So what another feature may use goes at the feature root; a shared package
+never imports a feature; and a feature points at another's entities by id (`UUID ownerId`), never with `@ManyToOne`.
 
 ## Configuration and profiles
 
@@ -103,7 +114,7 @@ use a `test` schema in the same database, which Flyway creates on first run.
 
 ## Tests
 
-Two kinds, both under `./mvnw test`:
+Three kinds, all under `./mvnw test`:
 
 - **Unit tests** — plain JUnit, no Spring context: validation through a bare `Validator`, services with Mockito
   mocks, error handling through a standalone `MockMvcTester`. Anything that is logic, not wiring.
@@ -111,6 +122,8 @@ Two kinds, both under `./mvnw test`:
   `RestTestClient`, real Tomcat and PostgreSQL. Not MockMvc, which skips the servlet container and misses bugs such as
   the `/error` forward. Every endpoint gets one: each status, each error `code`, and a database check where HTTP
   can't show the result.
+- **Rule tests** — scan the compiled code for a project rule, with no Spring context or database: `ModularityTest`
+  (module boundaries), `ConfigurationPropertiesPrefixTest` (the `euv-app.` prefix).
 
 `IntegrationTest` owns the plumbing — don't repeat it in subclasses:
 
@@ -118,7 +131,8 @@ Two kinds, both under `./mvnw test`:
 - Truncates every table except Flyway's before each test. `@Transactional` rollback can't: the server commits each
   request on its own thread.
 - Resets every `RateLimiter` and `Lockout` bean before each test, or counts from 127.0.0.1 carry over as 429s.
-- One started app shared by every subclass: avoid `@MockitoBean` and extra properties, which start another.
+- One started app shared by every subclass: avoid `@MockitoBean`, extra properties and Spring Modulith's
+  `@ApplicationModuleTest`, which each start another.
 
 Unit-test gotchas: a custom `ConstraintValidator` must be `public` (Spring can create a package-private one, plain
 Hibernate Validator can't), and `@InjectMocks` never calls `@PostConstruct` — call it yourself, as `AuthServiceTest`
@@ -156,8 +170,9 @@ Don't reopen these without a reason:
   (`method_not_allowed`). Validation failures add `errors: [{field, code, params}]`, where `code` is the constraint
   name (`Size`) and `params` its attributes (`min`, `max`). A domain error is a subclass of `ApiException` with its
   status, code and optional `params` map, sent as a top-level `params` for the translation to interpolate — data
-  only, nothing the user may not see. Not `@ResponseStatus`, which produces no code. `detail` is English for
-  developers; never show it to users, never put exception internals in it.
+  only, nothing the user may not see. A header it needs (`Retry-After`) comes from overriding `addHeaders`. Not
+  `@ResponseStatus`, which produces no code. `detail` is English for developers; never show it to users, never put
+  exception internals in it.
 
 ## Logging
 

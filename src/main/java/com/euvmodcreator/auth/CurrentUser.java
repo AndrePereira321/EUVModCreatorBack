@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth.security;
+package com.euvmodcreator.auth;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 

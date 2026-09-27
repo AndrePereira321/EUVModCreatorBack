@@ -1,7 +1,5 @@
 package com.euvmodcreator.error;
 
-import com.euvmodcreator.auth.exception.InvalidAccessTokenException;
-import com.euvmodcreator.ratelimit.RateLimitException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
@@ -61,29 +59,15 @@ class GlobalExceptionHandlerTest {
                 .extractingPath("$.code").isEqualTo("internal_error");
     }
 
-    // ApiException carries no headers, so the rate limit has its own handler adding Retry-After.
     @Test
-    void rateLimitIs429WithRetryAfter() {
-        MvcTestResult result = mvc.get().uri("/rate-limited").exchange();
+    void apiExceptionHeadersAreSent() {
+        MvcTestResult result = mvc.get().uri("/with-header").exchange();
 
         assertThat(result)
-                .hasStatus(HttpStatus.TOO_MANY_REQUESTS)
+                .hasStatus(HttpStatus.CONFLICT)
                 .hasHeader(HttpHeaders.RETRY_AFTER, "42")
                 .hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
-        assertThat(result).bodyJson().extractingPath("$.code").isEqualTo("rate_limited");
-        assertThat(result).bodyJson().extractingPath("$.params.retryAfterSeconds").isEqualTo(42);
-    }
-
-    // Thrown by the filter chain's entry point and by controllers alike; the header must come with the code.
-    @Test
-    void invalidAccessTokenIs401WithWwwAuthenticate() {
-        MvcTestResult result = mvc.get().uri("/invalid-access-token").exchange();
-
-        assertThat(result)
-                .hasStatus(HttpStatus.UNAUTHORIZED)
-                .hasHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
-                .hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
-        assertThat(result).bodyJson().extractingPath("$.code").isEqualTo("auth.invalid_access_token");
+        assertThat(result).bodyJson().extractingPath("$.code").isEqualTo("test.failure");
     }
 
     @Test
@@ -111,6 +95,19 @@ class GlobalExceptionHandlerTest {
 
     }
 
+    static class TestExceptionWithHeader extends TestException {
+
+        TestExceptionWithHeader() {
+            super(Map.of());
+        }
+
+        @Override
+        protected void addHeaders(HttpHeaders headers) {
+            headers.set(HttpHeaders.RETRY_AFTER, "42");
+        }
+
+    }
+
     @RestController
     static class ThrowingController {
 
@@ -129,14 +126,9 @@ class GlobalExceptionHandlerTest {
             throw new DataIntegrityViolationException("duplicate key value violates unique constraint");
         }
 
-        @GetMapping("/rate-limited")
-        void rateLimited() {
-            throw new RateLimitException(42);
-        }
-
-        @GetMapping("/invalid-access-token")
-        void invalidAccessToken() {
-            throw new InvalidAccessTokenException();
+        @GetMapping("/with-header")
+        void withHeader() {
+            throw new TestExceptionWithHeader();
         }
 
         @GetMapping("/busy")

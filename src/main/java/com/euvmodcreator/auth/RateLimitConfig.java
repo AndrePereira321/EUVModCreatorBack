@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth.security;
+package com.euvmodcreator.auth;
 
 import com.euvmodcreator.ratelimit.Lockout;
 import com.euvmodcreator.ratelimit.RateLimitInterceptor;

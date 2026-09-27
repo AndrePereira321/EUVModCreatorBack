@@ -1,6 +1,7 @@
 package com.euvmodcreator.error;
 
 import lombok.Getter;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 
 import java.util.Map;
@@ -30,6 +31,9 @@ public abstract class ApiException extends RuntimeException {
         this.status = status;
         this.code = code;
         this.params = Map.copyOf(params);
+    }
+
+    protected void addHeaders(HttpHeaders headers) {
     }
 
 }

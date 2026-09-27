@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth.security;
+package com.euvmodcreator.auth;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

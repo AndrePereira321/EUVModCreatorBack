@@ -13,7 +13,6 @@ import com.euvmodcreator.auth.repository.LoginCredentials;
 import com.euvmodcreator.auth.repository.UserAuthRepository;
 import com.euvmodcreator.auth.repository.UserRepository;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
-import com.euvmodcreator.auth.security.RateLimitProperties;
 import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import com.euvmodcreator.ratelimit.Lockout;

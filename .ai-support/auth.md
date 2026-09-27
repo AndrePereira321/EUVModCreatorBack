@@ -335,10 +335,9 @@ uses — so the body comes from `GlobalExceptionHandler`. It asks for the bean b
 hand-written constructor: Lombok's `@RequiredArgsConstructor` doesn't copy `@Qualifier` onto the parameter.
 `AccessTokenTest` covers each kind of bad token.
 
-The `WWW-Authenticate` header comes from `GlobalExceptionHandler`'s handler for `InvalidAccessTokenException`, not
-from the entry point, so it travels with the code wherever the exception is thrown: the entry point, or `/me` for a
-token that names a deleted user (`MeEndpointTest.deletedUserIsInvalidAccessToken`). Like `RateLimitException`, it
-has its own handler because `ApiException` carries no headers.
+The `WWW-Authenticate` header comes from `InvalidAccessTokenException.addHeaders`, not from the entry point, so it
+travels with the code wherever the exception is thrown: the entry point, or `/me` for a token that names a deleted
+user (`MeEndpointTest.deletedUserIsInvalidAccessToken`).
 
 **Revocation waits for `exp`.** Access tokens are checked by signature and `exp` alone; the session row is only read
 on refresh. To make logout take effect at once, add an `OAuth2TokenValidator<Jwt>` to the decoder that looks the
@@ -412,9 +411,8 @@ themselves (see below).
 
 The first three reject with 429 `rate_limited`, with `params.retryAfterSeconds` and the same number in a `Retry-After`
 header; the concurrency limits with 503 `server_busy`.
-`ApiException` carries no headers, so `RateLimitException` has its own handler in `GlobalExceptionHandler`; Spring
-picks the handler for the closest exception type, so it wins over the `ApiException` one. `RateLimitConfig` in
-`auth/security/` builds the limiters from `RateLimitProperties` and registers the interceptors. `ratelimit/` holds
+`RateLimitException` adds the `Retry-After` header itself, through `ApiException.addHeaders`. `RateLimitConfig`, at
+the `auth/` root, builds the limiters from `RateLimitProperties` and registers the interceptors. `ratelimit/` holds
 only the generic pieces, so another feature can declare its own limits the same way.
 
 **Per IP: a token bucket, in an interceptor.** Bucket4j with greedy refill: capacity is the burst, and tokens come back
@@ -511,7 +509,8 @@ and share one app, so the counts would carry over and turn later tests into 429s
   locked, a different casing locked too, an unknown username locked like a real one, and invalid requests using up
   the per-IP limit.
 - `RateLimitPropertiesTest`: the defaults, and a zero capacity or duration stopping startup.
-- `GlobalExceptionHandlerTest`: the 429 body and `Retry-After`, and the 503 for a rejected call.
+- `GlobalExceptionHandlerTest`: the 503 for a rejected call. The 429's `Retry-After` is checked over HTTP by the
+  endpoint tests above.
 
 Each was checked against a broken version, and the matching tests failed: without the `clear`, without the
 lowercasing, with a lock that rejected attempts extend, without `@Validated`, without `@EnableResilientMethods`, with

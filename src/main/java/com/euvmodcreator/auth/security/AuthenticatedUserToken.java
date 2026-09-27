@@ -1,5 +1,6 @@
 package com.euvmodcreator.auth.security;
 
+import com.euvmodcreator.auth.AuthenticatedUser;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.oauth2.jwt.Jwt;
 

@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth.security;
+package com.euvmodcreator.auth;
 
 import java.util.UUID;
 

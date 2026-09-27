@@ -1,4 +1,4 @@
-package com.euvmodcreator.auth.security;
+package com.euvmodcreator.auth;
 
 import jakarta.validation.constraints.Positive;
 import org.hibernate.validator.constraints.time.DurationMin;
@@ -10,7 +10,7 @@ import java.time.Duration;
 
 @Validated
 @ConfigurationProperties("euv-app.auth.rate-limit")
-public record RateLimitProperties(
+record RateLimitProperties(
 
         @Positive
         @DefaultValue("10")
@@ -50,10 +50,10 @@ public record RateLimitProperties(
 
     static final String DEFAULT_REGISTER_CONCURRENCY = "2";
 
-    public static final String LOGIN_CONCURRENCY_LIMIT =
+    static final String LOGIN_CONCURRENCY_LIMIT =
             "${euv-app.auth.rate-limit.login-concurrency:" + DEFAULT_LOGIN_CONCURRENCY + "}";
 
-    public static final String REGISTER_CONCURRENCY_LIMIT =
+    static final String REGISTER_CONCURRENCY_LIMIT =
             "${euv-app.auth.rate-limit.register-concurrency:" + DEFAULT_REGISTER_CONCURRENCY + "}";
 
 }

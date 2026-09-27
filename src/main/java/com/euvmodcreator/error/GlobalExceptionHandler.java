@@ -1,7 +1,5 @@
 package com.euvmodcreator.error;
 
-import com.euvmodcreator.auth.exception.InvalidAccessTokenException;
-import com.euvmodcreator.ratelimit.RateLimitException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import lombok.extern.slf4j.Slf4j;
@@ -35,13 +33,13 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Set<String> HIDDEN_ATTRIBUTES = Set.of("message", "groups", "payload", "regexp", "flags");
 
     @ExceptionHandler(ApiException.class)
-    ProblemDetail handleApiException(ApiException ex) {
+    ResponseEntity<ProblemDetail> handleApiException(ApiException ex) {
         log.debug("Answered {} {}", ex.getStatus().value(), ex.getCode());
         ProblemDetail problem = problem(ex.getStatus(), ex.getCode(), ex.getMessage());
         if (!ex.getParams().isEmpty()) {
             problem.setProperty("params", ex.getParams());
         }
-        return problem;
+        return ResponseEntity.status(ex.getStatus()).headers(ex::addHeaders).body(problem);
     }
 
     // A database constraint catching what no service check did.
@@ -66,21 +64,6 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         }
         log.error("Unhandled exception", ex);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "internal_error", "Unexpected server error");
-    }
-
-    @ExceptionHandler(RateLimitException.class)
-    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitException ex) {
-        return ResponseEntity.status(ex.getStatus())
-                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
-                .body(handleApiException(ex));
-    }
-
-    // Thrown by the security filter chain's entry point and by controllers alike; the header goes with the code.
-    @ExceptionHandler(InvalidAccessTokenException.class)
-    ResponseEntity<ProblemDetail> handleInvalidAccessToken(InvalidAccessTokenException ex) {
-        return ResponseEntity.status(ex.getStatus())
-                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
-                .body(handleApiException(ex));
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.euvmodcreator.auth.security;
 
+import com.euvmodcreator.auth.AuthenticatedUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;

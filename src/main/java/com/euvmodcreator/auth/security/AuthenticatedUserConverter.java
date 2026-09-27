@@ -1,5 +1,6 @@
 package com.euvmodcreator.auth.security;
 
+import com.euvmodcreator.auth.AuthenticatedUser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.oauth2.jwt.Jwt;
