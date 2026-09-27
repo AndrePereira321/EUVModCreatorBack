@@ -68,7 +68,8 @@ The token only ever travels in the `refresh_token` cookie, never in a response b
 | `Max-Age`         | computed from the session's `expires_at`, so the cookie and the row expire together         |
 
 Every login starts its own session: each device holds its own token and can be logged out on its own. Refresh swaps
-the token inside that session rather than starting another (see [Refresh](#refresh)).
+the token inside that session rather than starting another (see [Refresh](#refresh)). A login that brings the
+browser's current cookie along revokes that cookie's session (see [Login](#login)).
 
 `AuthService.login` returns an `AuthResult`, and `AuthController` splits it: the access token goes into the
 `LoginResponse` body, the refresh token into `Set-Cookie`. Refresh returns the same pair. They are two records rather
@@ -112,7 +113,8 @@ name and hashes first, then saves the user and the credentials in one `Transacti
 `TransactionTemplate`, injected through its interface so a unit test can pass a mock. Not a `@Transactional` helper on
 `AuthService`: a call from the same class skips the proxy, so the helper would run without a transaction.
 `AuthServiceTest.registerHashesThePasswordBeforeTheTransactionStarts` pins the order. `login` has no `@Transactional`
-for the same reason: BCrypt runs between two short repository transactions, and nothing there needs to be atomic.
+for the same reason: BCrypt runs between short repository calls that each commit on their own, and nothing there
+needs to be atomic.
 
 **Two registrations at once** can both pass the existence check while they hash; the unique index on `lower(username)`
 stops the second at its insert. `saveAndFlush` runs that insert inside the `try`, where the
@@ -143,6 +145,28 @@ Measured on the dev machine after the fix, averaging 10 failed logins each: wron
 
 `LoginRequest` only checks `@NotBlank` and `@MaxBytes(72)`, not register's rules. Those describe *new* accounts;
 tightening them must not lock out existing ones. A username that breaks them just isn't found.
+
+**The cookie it replaces.** The `refresh_token` cookie's path is `/api/auth`, so login receives whatever cookie the
+browser already holds, and its response overwrites it. Left alone, the session behind the old cookie would stay valid
+until it expired with no client holding its token, unless someone had stolen it. So login revokes that session:
+
+- Only after the password check. A typo while switching accounts logs nobody out.
+- Whoever it belongs to. The cookie is this browser's, and it is about to be replaced either way.
+- Like logout, it never fails: a missing cookie, an unknown token and an already revoked session change nothing, and
+  the first `revoked_at` stays.
+- Before the new session is saved, so a failure while revoking leaves no session that no client holds.
+
+A login without the cookie, from another device, leaves every other session alone.
+
+**One bulk `UPDATE`, not `findByRefreshTokenHash`.** That query's `@Lock` needs a transaction, and `login` has none
+(see [Register](#register)). The first version called it, and every login that carried a cookie answered 500
+`No active transaction`, whatever the cookie held. `UserSessionRepository.revokeByRefreshTokenHash` is a `@Modifying`
+JPQL `update`: one statement, atomic on its own, with no row to load or lock. It carries its own `@Transactional`
+because a modifying query needs a transaction and `login` doesn't open one. It sets `updated_at` itself:
+`@UpdateTimestamp` fires when Hibernate flushes an entity, and a bulk update never loads one.
+
+`LoginEndpointTest` covers each rule, and `AuthServiceTest` the order. Without `revokedAt is null`, without the
+`updatedAt`, and with the revoke moved after the new session, a test failed each time.
 
 ## Refresh
 

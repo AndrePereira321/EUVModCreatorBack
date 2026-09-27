@@ -146,7 +146,7 @@ class AuthServiceTest {
     void loginReturnsAccessTokenAndRefreshToken() {
         stubSuccessfulLogin();
 
-        AuthResult result = authService.login(LOGIN);
+        AuthResult result = authService.login(LOGIN, null);
 
         assertThat(result.accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isEqualTo(REFRESH_TOKEN);
@@ -156,7 +156,7 @@ class AuthServiceTest {
     void loginSavesSessionHoldingTheTokenHashNotTheToken() {
         User user = stubSuccessfulLogin();
 
-        authService.login(LOGIN);
+        authService.login(LOGIN, null);
 
         ArgumentCaptor<UserSession> savedSession = ArgumentCaptor.forClass(UserSession.class);
         verify(userSessionRepository).save(savedSession.capture());
@@ -170,7 +170,7 @@ class AuthServiceTest {
     void loginIssuesTheAccessTokenForTheNewSession() {
         User user = stubSuccessfulLogin();
 
-        authService.login(LOGIN);
+        authService.login(LOGIN, null);
 
         verify(tokenService).issueAccessToken(user.getId(), SESSION_ID);
     }
@@ -181,7 +181,7 @@ class AuthServiceTest {
                 .thenReturn(Optional.of(new LoginCredentials(new User(), REAL_HASH)));
         when(passwordEncoder.matches("password123", REAL_HASH)).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
+        assertThatThrownBy(() -> authService.login(LOGIN, null)).isInstanceOf(InvalidCredentialsException.class);
 
         verifyNoInteractions(tokenService, userSessionRepository);
     }
@@ -190,7 +190,7 @@ class AuthServiceTest {
     void loginStillRunsBcryptForUnknownUser() {
         when(userAuthRepository.findLoginCredentials("andre")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
+        assertThatThrownBy(() -> authService.login(LOGIN, null)).isInstanceOf(InvalidCredentialsException.class);
 
         // Against the dummy hash: the same BCrypt cost as a wrong password, so timing can't reveal the difference.
         verify(passwordEncoder).matches("password123", DUMMY_HASH);
@@ -202,7 +202,7 @@ class AuthServiceTest {
         when(userAuthRepository.findLoginCredentials("andre")).thenReturn(Optional.empty());
         when(passwordEncoder.matches("password123", DUMMY_HASH)).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
+        assertThatThrownBy(() -> authService.login(LOGIN, null)).isInstanceOf(InvalidCredentialsException.class);
 
         verifyNoInteractions(tokenService, userSessionRepository);
     }
@@ -212,7 +212,7 @@ class AuthServiceTest {
     void lockedUsernameIsRejectedBeforeBcrypt() {
         doThrow(new RateLimitException(300)).when(loginLockout).consume("andre");
 
-        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(RateLimitException.class);
+        assertThatThrownBy(() -> authService.login(LOGIN, null)).isInstanceOf(RateLimitException.class);
 
         verify(passwordEncoder, never()).matches(anyString(), anyString());
         verifyNoInteractions(userAuthRepository, tokenService, userSessionRepository);
@@ -223,7 +223,7 @@ class AuthServiceTest {
     void lockoutKeyIsTheLowercasedUsername() {
         when(userAuthRepository.findLoginCredentials("AnDrE")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest("AnDrE", "password123")))
+        assertThatThrownBy(() -> authService.login(new LoginRequest("AnDrE", "password123"), null))
                 .isInstanceOf(InvalidCredentialsException.class);
 
         verify(loginLockout).consume("andre");
@@ -233,7 +233,7 @@ class AuthServiceTest {
     void successfulLoginClearsTheFailedAttempts() {
         stubSuccessfulLogin();
 
-        authService.login(LOGIN);
+        authService.login(LOGIN, null);
 
         verify(loginLockout).clear("andre");
     }
@@ -243,10 +243,43 @@ class AuthServiceTest {
         when(userAuthRepository.findLoginCredentials("andre"))
                 .thenReturn(Optional.of(new LoginCredentials(new User(), REAL_HASH)));
 
-        assertThatThrownBy(() -> authService.login(LOGIN)).isInstanceOf(InvalidCredentialsException.class);
+        assertThatThrownBy(() -> authService.login(LOGIN, null)).isInstanceOf(InvalidCredentialsException.class);
 
         verify(loginLockout).consume("andre");
         verify(loginLockout, never()).clear(anyString());
+    }
+
+    // Revoked first, so a failure while revoking leaves no new session that no client holds.
+    @Test
+    void loginRevokesTheCookiesSessionBeforeStartingItsOwn() {
+        stubSuccessfulLogin();
+        when(tokenService.hashRefreshToken("old-token")).thenReturn("hashed-old-token");
+
+        authService.login(LOGIN, "old-token");
+
+        InOrder inOrder = inOrder(userSessionRepository);
+        inOrder.verify(userSessionRepository).revokeByRefreshTokenHash(eq("hashed-old-token"), any(Instant.class));
+        inOrder.verify(userSessionRepository).save(any(UserSession.class));
+    }
+
+    @Test
+    void wrongPasswordLeavesTheCookiesSessionAlone() {
+        when(userAuthRepository.findLoginCredentials("andre"))
+                .thenReturn(Optional.of(new LoginCredentials(new User(), REAL_HASH)));
+
+        assertThatThrownBy(() -> authService.login(LOGIN, "old-token")).isInstanceOf(InvalidCredentialsException.class);
+
+        verifyNoInteractions(userSessionRepository);
+    }
+
+    @Test
+    void loginWithoutACookieRevokesNothing() {
+        stubSuccessfulLogin();
+
+        authService.login(LOGIN, null);
+        authService.login(LOGIN, " ");
+
+        verify(userSessionRepository, never()).revokeByRefreshTokenHash(any(), any());
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.euvmodcreator.auth.dto.LoginRequest;
 import com.euvmodcreator.auth.dto.LoginResponse;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
+import com.euvmodcreator.auth.entity.UserSession;
 import com.euvmodcreator.auth.repository.UserSessionRepository;
 import com.euvmodcreator.auth.security.TokenService;
 import org.junit.jupiter.api.Test;
@@ -106,6 +107,7 @@ class LoginEndpointTest extends IntegrationTest {
         });
     }
 
+    // Two devices: neither sends the other's cookie, so both sessions stay live.
     @Test
     void everyLoginStartsItsOwnSession() {
         register("Andre", "password123");
@@ -114,7 +116,66 @@ class LoginEndpointTest extends IntegrationTest {
         String second = refreshToken(successfulLogin("Andre", "password123"));
 
         assertThat(second).isNotEqualTo(first);
-        assertThat(userSessionRepository.count()).isEqualTo(2);
+        assertThat(userSessionRepository.findAll()).hasSize(2)
+                .allSatisfy(session -> assertThat(session.getRevokedAt()).isNull());
+    }
+
+    // The response overwrites the browser's cookie, so the session behind it would live on with nobody holding it.
+    @Test
+    void loginRevokesTheSessionOfTheCookieItReplaces() {
+        register("Andre", "password123");
+        String first = refreshToken(successfulLogin("Andre", "password123"));
+
+        String second = refreshToken(successfulLogin("Andre", "password123", first));
+
+        UserSession revoked = session(first);
+        assertThat(revoked.getRevokedAt()).isCloseTo(Instant.now(), within(1, ChronoUnit.MINUTES));
+        assertThat(revoked.getUpdatedAt()).isEqualTo(revoked.getRevokedAt());
+        assertThat(session(second).getRevokedAt()).isNull();
+        client.post().uri("/api/auth/refresh").cookie(COOKIE, first).exchange().expectStatus().isUnauthorized();
+    }
+
+    // A typo while switching accounts must not log anybody out.
+    @Test
+    void failedLoginKeepsTheSessionOfItsCookie() {
+        register("Andre", "password123");
+        String token = refreshToken(successfulLogin("Andre", "password123"));
+
+        login("Andre", "wrongpassword", token).expectStatus().isUnauthorized();
+
+        assertThat(session(token).getRevokedAt()).isNull();
+    }
+
+    @Test
+    void loginRevokesTheCookiesSessionWhicheverUserItBelongsTo() {
+        register("Andre", "password123");
+        register("Bruno", "password123");
+        String andresToken = refreshToken(successfulLogin("Andre", "password123"));
+
+        successfulLogin("Bruno", "password123", andresToken);
+
+        assertThat(session(andresToken).getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void unknownCookieDoesNotStopLogin() {
+        register("Andre", "password123");
+
+        successfulLogin("Andre", "password123", "not-a-token-the-server-issued");
+
+        assertThat(userSessionRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void alreadyRevokedCookieKeepsItsFirstRevocationTime() {
+        register("Andre", "password123");
+        String token = refreshToken(successfulLogin("Andre", "password123"));
+        client.post().uri("/api/auth/logout").cookie(COOKIE, token).exchange().expectStatus().isNoContent();
+        Instant loggedOut = session(token).getRevokedAt();
+
+        successfulLogin("Andre", "password123", token);
+
+        assertThat(session(token).getRevokedAt()).isEqualTo(loggedOut);
     }
 
     @Test
@@ -260,11 +321,34 @@ class LoginEndpointTest extends IntegrationTest {
                 .exchange();
     }
 
+    private RestTestClient.ResponseSpec login(String username, String password, String refreshToken) {
+        return client.post().uri("/api/auth/login")
+                .cookie(COOKIE, refreshToken)
+                .body(new LoginRequest(username, password))
+                .exchange();
+    }
+
     private EntityExchangeResult<byte[]> successfulLogin(String username, String password) {
         return login(username, password)
                 .expectStatus().isOk()
                 .expectBody()
                 .returnResult();
+    }
+
+    private EntityExchangeResult<byte[]> successfulLogin(String username, String password, String refreshToken) {
+        return login(username, password, refreshToken)
+                .expectStatus().isOk()
+                .expectBody()
+                .returnResult();
+    }
+
+    // Not findByRefreshTokenHash: its row lock needs a transaction, and the test has none.
+    private UserSession session(String refreshToken) {
+        String hash = tokenService.hashRefreshToken(refreshToken);
+        return userSessionRepository.findAll().stream()
+                .filter(session -> session.getRefreshTokenHash().equals(hash))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static String refreshToken(EntityExchangeResult<byte[]> result) {

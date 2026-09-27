@@ -65,7 +65,7 @@ class AuthService {
         return transactionOperations.execute(status -> saveNewUser(registerRequest.username(), passwordHash));
     }
 
-    AuthResult login(LoginRequest request) {
+    AuthResult login(LoginRequest request, String oldRefreshToken) {
         String lockoutKey = request.username().toLowerCase(Locale.ROOT);
         loginLockout.consume(lockoutKey);
 
@@ -77,6 +77,7 @@ class AuthService {
         }
 
         loginLockout.clear(lockoutKey);
+        revokeOldSession(oldRefreshToken);
 
         User user = credentials.orElseThrow().user();
         RefreshToken refreshToken = tokenService.newRefreshToken();
@@ -153,6 +154,14 @@ class AuthService {
         String hash = credentials.map(LoginCredentials::passwordHash).orElse(dummyHash);
         boolean matches = passwordEncoder.matches(password, hash);   // always runs
         return credentials.isPresent() && matches;
+    }
+
+    private void revokeOldSession(String oldRefreshToken) {
+        if (oldRefreshToken == null || oldRefreshToken.isBlank()) {
+            return;
+        }
+
+        userSessionRepository.revokeByRefreshTokenHash(tokenService.hashRefreshToken(oldRefreshToken), Instant.now());
     }
 
 }

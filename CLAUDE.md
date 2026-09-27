@@ -203,6 +203,9 @@ before changing anything in `auth/`.
 - Refresh never extends a session: the rotated token keeps the session's `expires_at`. It rotates the hash on the
   same row, inside a `@Transactional` method, and `findByRefreshTokenHash` keeps its `@Lock`; without the lock, two
   concurrent refreshes both succeed.
+- Login revokes the session of the cookie it replaces, after the password check, through the bulk
+  `revokeByRefreshTokenHash`. Not `findByRefreshTokenHash`: its `@Lock` needs a transaction, and `login` has none.
+- A bulk `@Modifying` update sets `updatedAt` itself: `@UpdateTimestamp` only fires when Hibernate flushes an entity.
 - Logout never fails: 204 and a cleared cookie, whatever the token. The clearing cookie comes from the same
   `refreshTokenCookie` builder as the real one; with a different name or path the browser keeps the real one.
 - A controller gets the caller as `@CurrentUser AuthenticatedUser` (user id from `sub`, session id from `sid`) and

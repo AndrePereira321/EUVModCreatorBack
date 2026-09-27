@@ -35,8 +35,11 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest loginRequest) {
-        AuthResult result = authService.login(loginRequest);
+    ResponseEntity<LoginResponse> login(
+            @Valid @RequestBody LoginRequest loginRequest,
+            @CookieValue(name = REFRESH_TOKEN_COOKIE, required = false) String oldRefreshToken
+    ) {
+        AuthResult result = authService.login(loginRequest, oldRefreshToken);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookie(result.refreshToken()).toString())
