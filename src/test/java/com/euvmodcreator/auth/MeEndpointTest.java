@@ -6,6 +6,7 @@ import com.euvmodcreator.auth.dto.LoginResponse;
 import com.euvmodcreator.auth.dto.RegisterRequest;
 import com.euvmodcreator.auth.dto.RegisterResponse;
 import com.euvmodcreator.auth.dto.UserResponse;
+import com.euvmodcreator.auth.entity.User;
 import com.euvmodcreator.auth.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +36,35 @@ class MeEndpointTest extends IntegrationTest {
                 .returnResult()
                 .getResponseBody();
 
-        assertThat(response).isEqualTo(new UserResponse(id, "Andre"));
+        assertThat(response).isEqualTo(new UserResponse(id, "Andre", null, null, null, null, null));
+    }
+
+    // Nothing sets the profile over HTTP yet, so the test writes it to the row directly.
+    @Test
+    void returnsTheProfileFields() {
+        UUID id = register();
+        User user = userRepository.findById(id).orElseThrow();
+        user.setDisplayName("Andre the Modder");
+        user.setBio("I make mods.");
+        user.setSteamUrl("https://steamcommunity.com/id/andre");
+        user.setParadoxForumUrl("https://forum.paradoxplaza.com/forum/members/andre.1/");
+        user.setDiscordUrl("https://discord.gg/andre");
+        userRepository.save(user);
+
+        UserResponse response = me(accessToken(login("Andre")))
+                .expectStatus().isOk()
+                .expectBody(UserResponse.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(response).isEqualTo(new UserResponse(
+                id,
+                "Andre",
+                "Andre the Modder",
+                "I make mods.",
+                "https://steamcommunity.com/id/andre",
+                "https://forum.paradoxplaza.com/forum/members/andre.1/",
+                "https://discord.gg/andre"));
     }
 
     // Login ignores case; the username comes back as it was registered, not as it was typed.

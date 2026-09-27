@@ -11,8 +11,9 @@ Backend notes too long for this file — the reasoning behind the rules here. Co
 - [Auth](.ai-support/auth.md) — endpoints, the token, cookie and session design, how a request gets the current
   user, what the frontend must do, where a cache would go, and why login, refresh, logout, usernames and passwords
   work the way they do.
-- [Schema conventions](.ai-support/schema-conventions.md) — column types, keys, indexing (including
-  case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not recalled.
+- [Schema conventions](.ai-support/schema-conventions.md) — column types, where validation rules live, keys,
+  indexing (including case-insensitive uniqueness) and hash storage for Flyway migrations. Figures measured, not
+  recalled.
 
 ## Commands
 
@@ -155,6 +156,8 @@ Don't reopen these without a reason:
 - **Spring Data JPA, not Spring Data JDBC or raw `JdbcClient`.** JPA is what the docs and answers Andre will find
   all assume. `JdbcClient` is still available for queries where JPA gets in the way.
 - **Flyway owns the schema, not Hibernate.** See `ddl-auto` above.
+- **Validation rules live on request DTOs, not in `check` constraints.** One copy per rule. The schema keeps only
+  what Java can't guarantee: `not null`, uniqueness, foreign keys.
 - **Migrations are versioned by date, not a running counter.** `V2026.09.08_001__create_users.sql`, `_002` for
   the next one that day. Versions compare numerically, so pad every part identically (`V2026.9.8_1` duplicates
   `V2026.09.08_001`) and never start a day at `_000` (trailing zero parts are stripped).

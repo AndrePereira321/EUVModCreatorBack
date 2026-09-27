@@ -16,4 +16,14 @@ public class User extends BaseEntity {
 
     private String username;
 
+    private String displayName;
+
+    private String bio;
+
+    private String steamUrl;
+
+    private String paradoxForumUrl;
+
+    private String discordUrl;
+
 }

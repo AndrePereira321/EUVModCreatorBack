@@ -9,11 +9,16 @@ In PostgreSQL all three are the same storage. `varchar(n)` is `text` plus a leng
 to full width — `'andre'` costs 68 bytes as `char(64)` against 9 as `text`. Nothing is pre-allocated, so a length
 limit never saves space. (It does in MySQL, SQL Server and Oracle, which is where the habit comes from.)
 
-Length rules go in a `check` constraint, which can also express a minimum and a pattern:
+## Validation rules live in Java, not in the schema
 
-```sql
-username text not null unique check (char_length(username) between 3 and 32),
-```
+Rules a user can break by typing, such as length or pattern, go only on the request DTO as Bean Validation
+annotations. Written in a `check` constraint as well, every change would have to be made twice, and the second copy
+would need a migration. `username` and the profile fields work this way.
+
+The schema keeps what Java can't guarantee: `not null`, uniqueness (two requests can both pass a check in Java
+before either one saves) and foreign keys. If a bound ever does belong in the table, write it as a `check`
+constraint, never as `varchar(n)`, and keep it no stricter than the DTO. Otherwise input the DTO accepted fails in
+the database, and `GlobalExceptionHandler` answers it with a generic 409 `conflict`.
 
 ## `timestamptz`, never `timestamp`
 
@@ -76,6 +81,6 @@ Flyway checksums the file as text, **comments included**, and refuses to start o
 always a new migration, never an edit to an applied one.
 
 The one exception: **before the first production deploy**, migrations may be squashed, as the case-insensitive
-username index was folded into `V2026.09.08_001`. Every schema that already ran them — local `public` and `test` —
+username index and later the profile columns were folded into the users migration (now `V2026.09.27_001`). Every schema that already ran them — local `public` and `test` —
 must then be dropped, because Flyway also refuses an applied migration whose file no longer exists. Once a
 production database exists, this door is closed.

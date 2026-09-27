@@ -11,7 +11,7 @@ break by accident are repeated as one-liners in `CLAUDE.md`; this file is the re
 | `POST /api/auth/login`    | built  | 200 `{accessToken}` + `refresh_token` cookie, starts a session |
 | `POST /api/auth/refresh`  | built  | 200 `{accessToken}` + rotated `refresh_token` cookie           |
 | `POST /api/auth/logout`   | built  | 204 + cleared `refresh_token` cookie, ends the session         |
-| `GET /api/users/me`       | built  | 200 `{id, username}` of the caller — needs the access token    |
+| `GET /api/users/me`       | built  | 200 the caller's profile — needs the access token              |
 
 ## JWT plus a server-side session row
 
@@ -223,7 +223,21 @@ costs a query per request; see [Caching](#caching).
 
 ## Me
 
-`GET /api/users/me` returns the caller as `{id, username}`, the username as registered, whatever casing login used.
+`GET /api/users/me` returns the caller's profile: `id`, `username`, `displayName`, `bio`, `steamUrl`,
+`paradoxForumUrl` and `discordUrl`. The username comes back as registered, whatever casing login used.
+
+**Profile fields.** All optional, and `null` until the user sets them. Their rules will live only on the update
+endpoint's request DTO, not in the table (see [schema conventions](schema-conventions.md)): `displayName` 1–50
+characters, `bio` 1–500, each URL up to 200. The endpoint must store a blank value as `null`, so that `null` is the
+only way to be empty. The frontend shows the username in place of a missing display name. Display names aren't unique, so show the username
+beside one wherever impersonation would matter.
+
+**One field per site, not a list of links.** The frontend knows which icon each one gets, and each can be checked
+against its own site. Nothing sets these fields yet. When the update endpoint is built, each URL must be `https` on
+its own host: `steamcommunity.com`, `forum.paradoxplaza.com`, and `discord.gg` or `discord.com` for Discord, which
+takes a server invite since a Discord username isn't a link. The host check also keeps out `javascript:` URLs, which
+run script when the frontend renders them as `href`s. Check the host, not the path: Steam alone has `/id/…` and
+`/profiles/…`.
 It lives in `auth/` (`UserController`, `UserService`) because `auth` owns `User`; a separate `user/` feature would
 have the two packages importing each other.
 
