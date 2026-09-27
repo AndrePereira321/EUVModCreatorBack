@@ -1,8 +1,7 @@
 # Logging
 
-What the backend logs, at which level, and what never goes into a log line. `CLAUDE.md` repeats the rules as
-one-liners; this file is the reasoning behind them. The auth events themselves are listed in
-[auth](auth.md#logging).
+What the backend logs, at which level, and what never goes into a log line. `CLAUDE.md` repeats only the rules
+any feature can break; the rest lives here. The auth events themselves are listed in [auth](auth.md#logging).
 
 ## Setup
 

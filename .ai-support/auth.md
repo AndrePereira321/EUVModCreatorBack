@@ -1,7 +1,7 @@
 # Auth
 
-How users register, log in and stay logged in, and why each piece is the way it is. The rules that are easy to
-break by accident are repeated as one-liners in `CLAUDE.md`; this file is the reasoning behind them.
+How users register, log in and stay logged in, and why each piece is the way it is. `CLAUDE.md` keeps only the
+rules any feature can break; the auth rules live here alone.
 
 ## Endpoints
 
@@ -42,6 +42,8 @@ case through an `ApplicationContextRunner`, the way startup does.
 Everything outside `/api/auth/**` needs a Bearer token; without a valid one the answer is 401
 `auth.invalid_access_token`. The filter chain is stateless and CSRF protection is off, which is only safe while the
 refresh cookie is `SameSite`: the browser then never attaches it to a request another site started.
+
+`SecurityConfig` permits `DispatcherType.ERROR`, or Tomcat's forward to `/error` turns every 4xx into a 401.
 
 **Inside `/api/auth/**` the `Authorization` header is ignored.** `permitAll` only skips the authorization step;
 `BearerTokenAuthenticationFilter` still runs first, authenticates any bearer token it finds, and a bad one ends the
