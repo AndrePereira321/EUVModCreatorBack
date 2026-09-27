@@ -11,9 +11,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,6 +76,31 @@ class RegisterEndpointTest extends IntegrationTest {
         assertThat(userRepository.count()).isEqualTo(1);
     }
 
+    // Both pass the existence check while hashing; the unique index stops the second at its insert.
+    @Test
+    void sameUsernameRegisteredTwiceAtOnceIsUsernameTaken() throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<EntityExchangeResult<String>> attempt = () -> {
+            start.await();
+            return register("Andre", "password123").expectBody(String.class).returnResult();
+        };
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<EntityExchangeResult<String>> first = executor.submit(attempt);
+            Future<EntityExchangeResult<String>> second = executor.submit(attempt);
+            start.countDown();
+
+            List<EntityExchangeResult<String>> results = List.of(first.get(), second.get());
+            assertThat(results).extracting(result -> result.getStatus().value()).containsExactlyInAnyOrder(201, 409);
+            assertThat(results).filteredOn(result -> result.getStatus().value() == 409).singleElement()
+                    .extracting(EntityExchangeResult::getResponseBody).asString()
+                    .contains("\"auth.username_taken\"");
+        }
+
+        assertThat(userRepository.count()).isEqualTo(1);
+        assertThat(userAuthRepository.count()).isEqualTo(1);
+    }
+
     @Test
     void reportsEveryFailedRuleWithItsCodeAndParams() {
         register("a b", "tiny7")
@@ -81,7 +109,7 @@ class RegisterEndpointTest extends IntegrationTest {
                 .jsonPath("$.code").isEqualTo("validation_failed")
                 .jsonPath("$.errors[?(@.field == 'username' && @.code == 'Pattern')]").exists()
                 .jsonPath("$.errors[?(@.field == 'password' && @.code == 'Size')].params.min").isEqualTo(8)
-                .jsonPath("$.errors[?(@.field == 'password' && @.code == 'Size')].params.max").isEqualTo(32);
+                .jsonPath("$.errors[?(@.field == 'password' && @.code == 'Size')].params.max").isEqualTo(64);
     }
 
     @Test

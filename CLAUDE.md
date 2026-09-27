@@ -188,7 +188,10 @@ A short-lived JWT access token, plus a refresh token in an `HttpOnly` cookie who
 The design, the endpoints and the reasoning behind every rule below are in [auth](.ai-support/auth.md) — read it
 before changing anything in `auth/`.
 
-- `auth.jwt.secret` never gets a default in a committed file.
+- `auth.jwt.secret` never gets a default in a committed file, and must decode to at least 32 bytes; `AuthProperties`
+  checks that at startup.
+- BCrypt never runs inside a transaction, which holds a pooled connection from its start: `register` hashes before
+  `TransactionOperations.execute`, and `login` has no `@Transactional`.
 - CSRF is off, which is only safe while the refresh cookie is `SameSite`.
 - Refresh never extends a session: the rotated token keeps the session's `expires_at`. It rotates the hash on the
   same row, inside a `@Transactional` method, and `findByRefreshTokenHash` keeps its `@Lock`; without the lock, two

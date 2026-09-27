@@ -10,16 +10,20 @@ class AuthenticatedUserConverter implements Converter<Jwt, AuthenticatedUserToke
 
     @Override
     public AuthenticatedUserToken convert(Jwt jwt) {
-        String sessionId = jwt.getClaimAsString(TokenService.SESSION_ID_CLAIM);
-        if (sessionId == null) {
-            throw new InvalidBearerTokenException("Access token has no session id");
+        UUID sessionId = parseId(jwt.getClaimAsString(TokenService.SESSION_ID_CLAIM), "session id");
+        UUID userId = parseId(jwt.getSubject(), "subject");
+        return new AuthenticatedUserToken(new AuthenticatedUser(userId, sessionId), jwt);
+    }
+
+    private static UUID parseId(String value, String name) {
+        if (value == null) {
+            throw new InvalidBearerTokenException("Access token has no " + name);
         }
-        String userId = jwt.getSubject();
-        if (userId == null) {
-            throw new InvalidBearerTokenException("Access token has no subject");
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidBearerTokenException("Access token's " + name + " is not a UUID", e);
         }
-        AuthenticatedUser user = new AuthenticatedUser(UUID.fromString(userId), UUID.fromString(sessionId));
-        return new AuthenticatedUserToken(user, jwt);
     }
 
 }

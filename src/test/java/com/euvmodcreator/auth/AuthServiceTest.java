@@ -19,11 +19,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -67,6 +72,9 @@ class AuthServiceTest {
     @Mock
     private TokenService tokenService;
 
+    @Mock
+    private TransactionOperations transactionOperations;
+
     @InjectMocks
     private AuthService authService;
 
@@ -83,22 +91,15 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.register(REGISTER)).isInstanceOf(UsernameTakenException.class);
 
-        verify(userRepository, never()).save(any());
-        verifyNoInteractions(userAuthRepository);
+        verify(userRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(transactionOperations, userAuthRepository);
         // Not verifyNoInteractions: init() already called encode() for the dummy hash.
         verify(passwordEncoder, never()).encode(REGISTER.password());
     }
 
     @Test
     void savesUserThenCredentialsHoldingTheHash() {
-        UUID id = UUID.randomUUID();
-        // The real repository assigns the id on save; the mock has to do it by hand.
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
-            User user = invocation.getArgument(0);
-            ReflectionTestUtils.setField(user, "id", id);
-            return user;
-        });
-        when(passwordEncoder.encode("password123")).thenReturn("{bcrypt}hashed");
+        UUID id = stubSuccessfulRegister();
 
         User registered = authService.register(REGISTER);
 
@@ -109,6 +110,31 @@ class AuthServiceTest {
         verify(userAuthRepository).save(savedAuth.capture());
         assertThat(savedAuth.getValue().getUserId()).isEqualTo(id);
         assertThat(savedAuth.getValue().getPasswordHash()).isEqualTo("{bcrypt}hashed");
+    }
+
+    // A transaction holds a pooled connection from its start, so BCrypt must finish before one opens.
+    @Test
+    void registerHashesThePasswordBeforeTheTransactionStarts() {
+        stubSuccessfulRegister();
+
+        authService.register(REGISTER);
+
+        InOrder inOrder = inOrder(passwordEncoder, transactionOperations);
+        inOrder.verify(passwordEncoder).encode("password123");
+        inOrder.verify(transactionOperations).execute(any());
+    }
+
+    // Both registrations passed the existence check; the unique index stopped this one.
+    @Test
+    void usernameTakenWhileHashingIsUsernameTaken() {
+        when(passwordEncoder.encode("password123")).thenReturn("{bcrypt}hashed");
+        runTransactionsInline();
+        when(userRepository.saveAndFlush(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
+
+        assertThatThrownBy(() -> authService.register(REGISTER)).isInstanceOf(UsernameTakenException.class);
+
+        verifyNoInteractions(userAuthRepository);
     }
 
     @Test
@@ -262,6 +288,25 @@ class AuthServiceTest {
         when(userSessionRepository.findByRefreshTokenHash("hashed-old-token")).thenReturn(Optional.empty());
 
         assertThatNoException().isThrownBy(() -> authService.logout("old-token"));
+    }
+
+    private UUID stubSuccessfulRegister() {
+        UUID id = UUID.randomUUID();
+        when(passwordEncoder.encode("password123")).thenReturn("{bcrypt}hashed");
+        runTransactionsInline();
+        // The real repository assigns the id on save; the mock has to do it by hand.
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            ReflectionTestUtils.setField(user, "id", id);
+            return user;
+        });
+        return id;
+    }
+
+    // What TransactionTemplate does, minus the transaction: run the callback and return its result.
+    private void runTransactionsInline() {
+        when(transactionOperations.execute(any())).thenAnswer(invocation ->
+                invocation.<TransactionCallback<?>>getArgument(0).doInTransaction(new SimpleTransactionStatus()));
     }
 
     private User stubSuccessfulLogin() {

@@ -19,6 +19,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.UUID;
 
 // Any path outside /api/auth needs a token. /api/nothing-here has no controller, so a request that gets past
@@ -61,7 +62,8 @@ class AccessTokenTest extends IntegrationTest {
         byte[] otherKey = new byte[32];
         new SecureRandom().nextBytes(otherKey);
         TokenService forger = new TokenService(
-                new AuthProperties("unused", Duration.ofMinutes(15), Duration.ofDays(30)),
+                new AuthProperties(
+                        Base64.getEncoder().encodeToString(otherKey), Duration.ofMinutes(15), Duration.ofDays(30)),
                 NimbusJwtEncoder.withSecretKey(new SecretKeySpec(otherKey, "HmacSHA256")).build());
 
         expectInvalidAccessToken(request(forger.issueAccessToken(savedUser().getId(), UUID.randomUUID())));
@@ -85,6 +87,18 @@ class AccessTokenTest extends IntegrationTest {
         JwtClaimsSet withoutSessionId = claims(now, now.plus(Duration.ofMinutes(15))).build();
 
         expectInvalidAccessToken(request(sign(withoutSessionId)));
+    }
+
+    // Validly signed, but UUID.fromString would throw, which escapes the filter as a 500 unless the converter wraps it.
+    @Test
+    void tokenWhoseSubjectIsNotAUuidIsInvalidAccessToken() {
+        Instant now = Instant.now();
+        JwtClaimsSet malformedSubject = claims(now, now.plus(Duration.ofMinutes(15)))
+                .subject("not-a-uuid")
+                .claim(TokenService.SESSION_ID_CLAIM, UUID.randomUUID().toString())
+                .build();
+
+        expectInvalidAccessToken(request(sign(malformedSubject)));
     }
 
     private RestTestClient.ResponseSpec request(String token) {

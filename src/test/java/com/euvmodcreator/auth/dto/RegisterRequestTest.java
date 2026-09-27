@@ -43,11 +43,16 @@ class RegisterRequestTest {
             "'',                                  NotBlank",
             "'        ',                          NotBlank",
             "seven77,                             Size",
-            "abcdefghijklmnopqrstuvwxyz0123456,   Size",     // 33 characters
+            "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz012, Size", // 65 characters
             "€€€€€€€€€€€€€€€€€€€€€€€€€,           MaxBytes", // 25 characters, 75 bytes
     })
     void rejectsInvalidPassword(String password, String rule) {
         assertThat(failedRules(new RegisterRequest(VALID_USERNAME, password))).contains("password:" + rule);
+    }
+
+    @Test
+    void acceptsPasswordOf64Characters() {
+        assertThat(failedRules(new RegisterRequest(VALID_USERNAME, "a".repeat(64)))).isEmpty();
     }
 
     @Test

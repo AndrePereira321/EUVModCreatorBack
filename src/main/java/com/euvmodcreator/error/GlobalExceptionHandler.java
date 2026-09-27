@@ -47,7 +47,7 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    // The unique constraint catching what a service check missed, e.g. two registrations racing for one username.
+    // A database constraint catching what no service check did.
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         log.warn("Database constraint rejected a write", ex);

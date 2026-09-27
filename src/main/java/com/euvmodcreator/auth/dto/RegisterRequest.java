@@ -12,7 +12,7 @@ public record RegisterRequest(
         String username,
 
         @NotBlank
-        @Size(min = 8, max = 32)
+        @Size(min = 8, max = 64)
         @MaxBytes(72) // BCrypt's input limit
         String password
 ) {

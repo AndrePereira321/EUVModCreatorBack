@@ -27,7 +27,8 @@ class TokenServiceTest {
     private final SecretKey key = randomKey();
 
     private final TokenService tokenService = new TokenService(
-            new AuthProperties("unused", ACCESS_TTL, REFRESH_TTL), NimbusJwtEncoder.withSecretKey(key).build());
+            new AuthProperties(Base64.getEncoder().encodeToString(key.getEncoded()), ACCESS_TTL, REFRESH_TTL),
+            NimbusJwtEncoder.withSecretKey(key).build());
 
     private final JwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
 

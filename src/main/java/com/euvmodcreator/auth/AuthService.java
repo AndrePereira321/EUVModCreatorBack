@@ -17,9 +17,11 @@ import com.euvmodcreator.auth.security.RefreshToken;
 import com.euvmodcreator.auth.security.TokenService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -39,6 +41,8 @@ class AuthService {
 
     private final TokenService tokenService;
 
+    private final TransactionOperations transactionOperations;
+
     private String dummyHash;
 
     @PostConstruct
@@ -46,23 +50,15 @@ class AuthService {
         this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
-    @Transactional
     User register(RegisterRequest registerRequest) {
         boolean userExists = userRepository.existsByUsernameIgnoreCase(registerRequest.username());
         if (userExists) {
             throw new UsernameTakenException();
         }
 
-        User user = new User();
-        user.setUsername(registerRequest.username());
-        User savedUser = userRepository.save(user);
+        String passwordHash = passwordEncoder.encode(registerRequest.password());
 
-        UserAuth userAuth = new UserAuth();
-        userAuth.setPasswordHash(passwordEncoder.encode(registerRequest.password()));
-        userAuth.setUserId(savedUser.getId());
-        userAuthRepository.save(userAuth);
-
-        return savedUser;
+        return transactionOperations.execute(status -> saveNewUser(registerRequest.username(), passwordHash));
     }
 
     AuthResult login(LoginRequest request) {
@@ -114,6 +110,24 @@ class AuthService {
         userSessionRepository.findByRefreshTokenHash(tokenService.hashRefreshToken(refreshToken))
                 .filter(userSession -> userSession.getRevokedAt() == null)
                 .ifPresent(userSession -> userSession.setRevokedAt(Instant.now()));
+    }
+
+    private User saveNewUser(String username, String passwordHash) {
+        User user = new User();
+        user.setUsername(username);
+        User savedUser;
+        try {
+            savedUser = userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException e) {
+            throw new UsernameTakenException();
+        }
+
+        UserAuth userAuth = new UserAuth();
+        userAuth.setPasswordHash(passwordHash);
+        userAuth.setUserId(savedUser.getId());
+        userAuthRepository.save(userAuth);
+
+        return savedUser;
     }
 
     private UserSession createNewUserSession(UUID userId, RefreshToken refreshToken) {

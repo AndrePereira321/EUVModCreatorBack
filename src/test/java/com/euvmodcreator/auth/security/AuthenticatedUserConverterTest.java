@@ -42,6 +42,20 @@ class AuthenticatedUserConverterTest {
         assertThatThrownBy(() -> converter.convert(jwt)).isInstanceOf(InvalidBearerTokenException.class);
     }
 
+    @Test
+    void rejectsTokenWhoseSubjectIsNotAUuid() {
+        Jwt jwt = jwt().subject("not-a-uuid").claim("sid", UUID.randomUUID().toString()).build();
+
+        assertThatThrownBy(() -> converter.convert(jwt)).isInstanceOf(InvalidBearerTokenException.class);
+    }
+
+    @Test
+    void rejectsTokenWhoseSessionIdIsNotAUuid() {
+        Jwt jwt = jwt().subject(UUID.randomUUID().toString()).claim("sid", "not-a-uuid").build();
+
+        assertThatThrownBy(() -> converter.convert(jwt)).isInstanceOf(InvalidBearerTokenException.class);
+    }
+
     private static Jwt.Builder jwt() {
         return Jwt.withTokenValue("token").header("alg", "HS256");
     }

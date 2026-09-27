@@ -32,6 +32,12 @@ decoder. The subject (`sub`) is the user id, and `sid` the session's row id (see
 Settings bind to `AuthProperties` (`auth.jwt.*`): `secret` is required — `JWT_SECRET` in production, never a default
 in any committed file — `access-token-ttl` defaults to 15m and `refresh-token-ttl` to 30d, both in code.
 
+The secret must be Base64 of at least 32 bytes, the smallest key HS256 allows. `AuthProperties` checks that in its
+compact constructor, so a short or non-Base64 secret stops startup. Without the check the app boots anyway: Nimbus
+checks the key length only when it creates its signer, inside the first `encode()`, so every login would answer 500.
+A missing or blank secret is left to `@NotBlank`, which runs after the constructor. `AuthPropertiesTest` binds each
+case through an `ApplicationContextRunner`, the way startup does.
+
 Everything outside `/api/auth/**` needs a Bearer token; without a valid one the answer is 401
 `auth.invalid_access_token`. The filter chain is stateless and CSRF protection is off, which is only safe while the
 refresh cookie is `SameSite`: the browser then never attaches it to a request another site started.
@@ -82,8 +88,10 @@ Every lookup must filter on `lower(username)`, the index's exact expression, so 
 
 ## Passwords
 
-8–32 characters, with no composition rules ("must contain a digit"), per current NIST guidance: such rules push
-users towards predictable patterns without making passwords stronger.
+8–64 characters, with no composition rules ("must contain a digit"), per NIST SP 800-63B-4: verifiers should allow at
+least 64 characters, and composition rules push users towards predictable patterns without making passwords stronger.
+The same revision asks for a 15-character minimum when the password is the only factor; see
+[Open questions](#open-questions).
 
 `@MaxBytes(72)` guards BCrypt's input limit, which `@Size` can't: `@Size` counts characters, and one character can
 be up to 4 bytes in UTF-8. Spring Security 7 throws on a longer input instead of silently truncating it.
@@ -95,6 +103,22 @@ Hashes come from the delegating `PasswordEncoder`, prefixed `{bcrypt}`; see
 
 201 with the new user, and no login: sessions and cookies are created by login only, so the frontend calls login
 next. A taken username is 409 `auth.username_taken` — that necessarily reveals the name exists.
+
+**BCrypt runs outside the transaction.** A transaction takes a pooled connection when it starts — Hibernate's `begin()`
+calls `setAutoCommit(false)` on it — and holds it until commit. BCrypt takes about 80 ms and production's pool has 4
+connections, so four registrations hashing inside transactions would stall every other request. `register` checks the
+name and hashes first, then saves the user and the credentials in one `TransactionOperations.execute` callback: Boot's
+`TransactionTemplate`, injected through its interface so a unit test can pass a mock. Not a `@Transactional` helper on
+`AuthService`: a call from the same class skips the proxy, so the helper would run without a transaction.
+`AuthServiceTest.registerHashesThePasswordBeforeTheTransactionStarts` pins the order. `login` has no `@Transactional`
+for the same reason: BCrypt runs between two short repository transactions, and nothing there needs to be atomic.
+
+**Two registrations at once** can both pass the existence check while they hash; the unique index on `lower(username)`
+stops the second at its insert. `saveAndFlush` runs that insert inside the `try`, where the
+`DataIntegrityViolationException` becomes the same 409 `auth.username_taken`. With `save` the insert waits for commit,
+after the callback returns, and the answer was `GlobalExceptionHandler`'s generic 409 `conflict` —
+`RegisterEndpointTest.sameUsernameRegisteredTwiceAtOnceIsUsernameTaken` failed 3 runs out of 3 that way. The existence
+check stays anyway: it answers a taken name without spending a hash on it.
 
 ## Login
 
@@ -199,8 +223,11 @@ it beyond the principal yet; "log out everywhere else" and a per-request session
 
 **The converter never touches the database.** It runs on every authenticated request, most of which only need the
 ids, and it runs in a filter, where an exception never reaches `GlobalExceptionHandler`. It throws
-`InvalidBearerTokenException` for a token without `sub` or `sid`: the filter turns an `AuthenticationException` into a
-401 and lets anything else escape as a 500.
+`InvalidBearerTokenException` for a token without a `sub` or `sid`, or with one that isn't a UUID: the filter turns an
+`AuthenticationException` into a 401 and lets anything else escape as a 500. `UUID.fromString`'s
+`IllegalArgumentException` did exactly that before it was wrapped
+(`AccessTokenTest.tokenWhoseSubjectIsNotAUuidIsInvalidAccessToken`). Only a token signed with the app's key gets that
+far, so it takes a leaked key or an issuing bug.
 
 **Services take the ids as parameters,** not from `SecurityContextHolder`. The dependency shows in the signature, a
 unit test just passes a UUID, and `@Async` or `@Scheduled` code, which runs on another thread with no request, can
@@ -297,6 +324,9 @@ hold the foreign key (without bytecode enhancement), so every `User` load would 
 
 - **Discord OAuth2 vs username + password.** Not settled.
 - **No email column** on `users`, so password reset is impossible until the above is decided.
+- **Minimum password length.** NIST SP 800-63B-4 asks for 15 characters when the password is the only factor (8 only
+  alongside a second one); register allows 8. Raising it affects only new passwords, since login doesn't apply
+  register's rules.
 - **Before going public:**
   - Rate limiting on login: nothing limits password guessing yet.
   - XSS discipline and a Content-Security-Policy in the frontend. `HttpOnly` stops a script stealing the refresh
