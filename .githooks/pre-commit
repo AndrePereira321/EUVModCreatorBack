@@ -1,0 +1,15 @@
+#!/bin/sh
+# Runs before every commit, from the repo root. Bypass with --no-verify (don't).
+# Compiles main and test code only: the tests need PostgreSQL running, so they aren't run here.
+
+if [ -z "$JAVA_HOME" ] && [ -d "$HOME/.jdks/openjdk-25" ]; then
+	export JAVA_HOME="$HOME/.jdks/openjdk-25"
+fi
+
+if ! sh ./mvnw -q test-compile; then
+	echo ""
+	echo "pre-commit: main or test code doesn't compile. Fix it and commit again."
+	exit 1
+fi
+
+echo "pre-commit: main and test code compile."

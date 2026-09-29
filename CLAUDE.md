@@ -26,8 +26,19 @@ app from IntelliJ.
 ./mvnw test              # unit + integration tests; integration tests need PostgreSQL running
 ./mvnw test-compile      # compile only, no database needed
 ./mvnw spring-boot:run   # start on http://localhost:8080
-./mvnw clean package     # build the jar
+./mvnw clean package     # build the jar — Maven runs every test first, so PostgreSQL must be up (-DskipTests skips)
 ```
+
+## Pre-commit hook
+
+`.githooks/pre-commit` runs `./mvnw -q test-compile` and blocks the commit if main or test code doesn't compile. It
+doesn't run the tests — they need PostgreSQL, and a hook that fails whenever the database is down gets bypassed. Run
+`./mvnw test` before pushing. The hook sets `JAVA_HOME` to `~/.jdks/openjdk-25` when it's unset, as it is in a commit
+from IntelliJ.
+
+**Git only runs it after `git config core.hooksPath .githooks`** — once per clone, since Maven has no install step to
+do it the way npm's `prepare` does in the frontend. A new hook file needs the executable bit in git
+(`git add --chmod=+x .githooks/<hook>`) or it won't run on Linux or macOS.
 
 ## Stack
 
