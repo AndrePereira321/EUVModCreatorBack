@@ -3,6 +3,11 @@
 Java + Spring Boot API for the EU5 mod creator. Workspace context — what the app is for, how Andre wants to work,
 commit message rules — is in the parent `../CLAUDE.md`, which loads alongside this file.
 
+## Skills
+
+Procedures — writing and running tests — are the `back-*` skills. They live in the workspace, not this repo;
+`../CLAUDE.md` lists them and holds the convention.
+
 ## `.ai-support/` docs
 
 Backend notes too long for this file. The convention, and the rule to keep this index in sync: `../CLAUDE.md`.
@@ -24,6 +29,7 @@ app from IntelliJ.
 
 ```bash
 ./mvnw test              # unit + integration tests; integration tests need PostgreSQL running
+./mvnw test -Dtest=X     # one class; X#method for one test
 ./mvnw test-compile      # compile only, no database needed
 ./mvnw spring-boot:run   # start on http://localhost:8080
 ./mvnw clean package     # build the jar — Maven runs every test first, so PostgreSQL must be up (-DskipTests skips)
@@ -125,29 +131,17 @@ use a `test` schema in the same database, which Flyway creates on first run.
 
 ## Tests
 
-Three kinds, all under `./mvnw test`:
+JUnit 6, AssertJ and Mockito, all under `./mvnw test`: unit tests, `ApplicationContextRunner` tests, integration tests
+(`extends IntegrationTest`: the whole app on a random port, real HTTP through `RestTestClient`, real PostgreSQL) and
+rule tests (`ModularityTest`, `ConfigurationPropertiesPrefixTest`). Every endpoint gets integration tests — real HTTP,
+not MockMvc, which skips the servlet container and misses bugs such as the `/error` forward. How to write, run and
+debug them: the `back-testing` skill. Two rules that main code can break:
 
-- **Unit tests** — plain JUnit, no Spring context: validation through a bare `Validator`, services with Mockito
-  mocks, error handling through a standalone `MockMvcTester`. Anything that is logic, not wiring.
-- **Integration tests** — extend `IntegrationTest`: the whole app on a random port, real HTTP through
-  `RestTestClient`, real Tomcat and PostgreSQL. Not MockMvc, which skips the servlet container and misses bugs such as
-  the `/error` forward. Every endpoint gets one: each status, each error `code`, and a database check where HTTP
-  can't show the result.
-- **Rule tests** — scan the compiled code for a project rule, with no Spring context or database: `ModularityTest`
-  (module boundaries), `ConfigurationPropertiesPrefixTest` (the `euv-app.` prefix).
-
-`IntegrationTest` owns the plumbing — don't repeat it in subclasses:
-
-- The `test` profile, pointing at the `test` schema, and a random JWT secret per run.
-- Truncates every table except Flyway's before each test. `@Transactional` rollback can't: the server commits each
-  request on its own thread.
-- Resets every `RateLimiter` and `Lockout` bean before each test, or counts from 127.0.0.1 carry over as 429s.
-- One started app shared by every subclass: avoid `@MockitoBean`, extra properties and Spring Modulith's
-  `@ApplicationModuleTest`, which each start another.
-
-Unit-test gotchas: a custom `ConstraintValidator` must be `public` (Spring can create a package-private one, plain
-Hibernate Validator can't), and `@InjectMocks` never calls `@PostConstruct` — call it yourself, as `AuthServiceTest`
-does with `init()`.
+- **In-memory state is reset in `IntegrationTest`.** Integration tests share one started app and empty the tables before
+  each test, but not beans: a new limiter, lockout, cache or counter needs its reset added to `IntegrationTest`'s
+  `@BeforeEach`, or it leaks from one test into another.
+- **One app for every integration test.** A test class that adds `@MockitoBean`, a property, a profile or
+  `@DirtiesContext` starts a second one.
 
 ## Decisions already made
 
