@@ -517,13 +517,15 @@ and share one app, so the counts would carry over and turn later tests into 429s
   locked, a different casing locked too, an unknown username locked like a real one, and invalid requests using up
   the per-IP limit.
 - `RateLimitPropertiesTest`: the defaults, and a zero capacity or duration stopping startup.
+- `RateLimitInterceptorTest`: one bucket per client IP, and a client-written `X-Forwarded-For` doesn't get a fresh
+  one. The endpoint tests can't see either: all their requests come from 127.0.0.1.
 - `GlobalExceptionHandlerTest`: the 503 for a rejected call. The 429's `Retry-After` is checked over HTTP by the
   endpoint tests above.
 
 Each was checked against a broken version, and the matching tests failed: without the `clear`, without the
 lowercasing, with a lock that rejected attempts extend, without `@Validated`, without `@EnableResilientMethods`, with
-`BLOCK` instead of `REJECT`, without the annotation on `register`, with a misspelt property, and without the 503
-handler.
+`BLOCK` instead of `REJECT`, without the annotation on `register`, with a misspelt property, without the 503
+handler, and with the interceptor keyed on a constant or on `X-Forwarded-For`.
 
 ## Logging
 
