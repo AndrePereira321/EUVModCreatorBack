@@ -226,7 +226,15 @@ security reasons" code would be the one worth having.
 the row until the transaction commits. When two requests present the same token at once, the second waits, then finds
 the hash already replaced and gets the 401. Without the lock both succeed, the token has been used twice, and the
 browser may keep whichever cookie arrived last, possibly a dead one.
-`RefreshEndpointTest.sameTokenRefreshedTwiceAtOnceWorksOnlyOnce` failed 3 runs out of 3 with the lock removed.
+
+`RefreshEndpointTest.sameTokenRefreshedTwiceAtOnceWorksOnlyOnce` **holds the row lock itself** — `select … for update`
+on its own connection — until `pg_stat_activity` shows both requests waiting on `user_sessions`, then commits, so the
+two always overlap. With the app's lock, both wait at the `select` and the second then finds the hash replaced;
+without it, both read the old hash and both succeed. The first version only released two requests from a latch and
+hoped: with the lock removed it failed 3 runs out of 3 when run alone, where a cold JVM makes each refresh slow, but
+passed 3 full-suite runs out of 3, where a warm one finishes the first refresh before the second reaches the
+database. The current version fails the full suite with the lock removed (`[200, 200]`). A race test proves nothing
+until it has failed without the fix under the conditions the suite runs it in.
 
 **`@Transactional` does three jobs here:**
 

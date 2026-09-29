@@ -18,6 +18,9 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -25,7 +28,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 class RefreshEndpointTest extends IntegrationTest {
 
@@ -42,6 +47,9 @@ class RefreshEndpointTest extends IntegrationTest {
 
     @Autowired
     private JdbcClient jdbcClient;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     void returnsAccessTokenForTheSameUserAndSession() {
@@ -184,23 +192,27 @@ class RefreshEndpointTest extends IntegrationTest {
         expectInvalidRefreshToken(refresh(token));
     }
 
-    // The row lock makes the second request wait, then find the token already replaced.
+    // The test holds the session row until both requests wait on it, so they overlap on every run. A latch alone let a
+    // warm JVM finish one refresh before the other started, and the test passed without the lock (auth.md, Refresh).
     @Test
     void sameTokenRefreshedTwiceAtOnceWorksOnlyOnce() throws Exception {
         register();
         String token = login();
-        CountDownLatch start = new CountDownLatch(1);
-        Callable<Integer> attempt = () -> {
-            start.await();
-            return refresh(token).returnResult().getStatus().value();
-        };
+        Callable<Integer> attempt = () -> refresh(token).returnResult().getStatus().value();
 
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+             Connection rowLock = dataSource.getConnection()) {
+            rowLock.setAutoCommit(false);
+            try (Statement statement = rowLock.createStatement()) {
+                statement.execute("select 1 from user_sessions for update");
+            }
+
             Future<Integer> first = executor.submit(attempt);
             Future<Integer> second = executor.submit(attempt);
-            start.countDown();
+            awaitRequestsWaitingOnSessionRow(2);
+            rowLock.commit();
 
-            assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(200, 401);
+            assertThat(List.of(first.get(10, SECONDS), second.get(10, SECONDS))).containsExactlyInAnyOrder(200, 401);
         }
     }
 
@@ -237,6 +249,26 @@ class RefreshEndpointTest extends IntegrationTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .returnResult());
+    }
+
+    private void awaitRequestsWaitingOnSessionRow(int requests) throws InterruptedException {
+        Instant deadline = Instant.now().plusSeconds(10);
+        while (requestsWaitingOnSessionRow() < requests) {
+            if (Instant.now().isAfter(deadline)) {
+                fail("Timed out waiting for %d refreshes to block on the session row", requests);
+            }
+            Thread.sleep(10);
+        }
+    }
+
+    private int requestsWaitingOnSessionRow() {
+        return jdbcClient.sql("""
+                        select count(*) from pg_stat_activity
+                        where wait_event_type = 'Lock'
+                          and pid in (select pid from pg_locks where relation = 'user_sessions'::regclass)
+                        """)
+                .query(Integer.class)
+                .single();
     }
 
     private static void expectInvalidRefreshToken(RestTestClient.ResponseSpec response) {
