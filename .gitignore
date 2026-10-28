@@ -39,3 +39,7 @@ src/main/resources/application-local.properties
 ### Logs ###
 # Written by the local profile (logging.file.name).
 /logs/
+
+### Python ###
+# Created when scripts/ run.
+__pycache__/
