@@ -5,10 +5,10 @@ const DATA = JSON.parse(document.getElementById('eu5-data').textContent);
 const MODS = markRaw(DATA.mods);
 const SRC = markRaw(DATA.src);
 const ST = DATA.stats;
-const PAGE = 150;
+const PAGE = 60;
 
 // --- formatting ---------------------------------------------------------------
-const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const norm = s => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const humanize = s => (s.charAt(0).toUpperCase() + s.slice(1)).replace(/_/g, ' ');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const raw = v => String(+v.toFixed(6));
@@ -27,15 +27,6 @@ function tone(v, g) {
 }
 const TONE_TEXT = { pos: 'text-success-600 dark:text-success-300', neg: 'text-error-600 dark:text-error-300', neu: 'text-foreground' };
 const TONE_BG = { pos: 'bg-success', neg: 'bg-error', neu: 'bg-muted' };
-
-function summary(m) {
-	if (m.u) return m.mn[0] === m.mx[0] ? disp(m.mn[0], m.t) : `${disp(m.mn[0], m.t)} to ${disp(m.mx[0], m.t)}`;
-	if (m.fl) return `Granted ${m.fl}×`;
-	if (m.scn) return 'Scaled only';
-	if (m.dyn) return 'Computed only';
-	if (m.b !== undefined) return 'Base value';
-	return 'Unused';
-}
 
 // --- data prep ------------------------------------------------------------------
 const byKey = new Map();
@@ -168,7 +159,10 @@ const ChipGroup = {
 	emits: ['update:modelValue'],
 };
 
-const BackLink = { template: '#back-link-template', props: { view: String } };
+const ExpandToggle = {
+	template: '#toggle-template',
+	props: { open: Boolean, openLabel: String, closeLabel: String, detail: String },
+};
 
 const SourceLink = {
 	template: '#source-link-template',
@@ -180,7 +174,7 @@ const SourceLink = {
 
 const SourceList = {
 	template: '#source-list-template',
-	props: { sources: Array, initial: { type: Number, default: 4 } },
+	props: { sources: Array, initial: { type: Number, default: 3 } },
 	setup(props) {
 		const open = ref(false);
 		const visible = computed(() => (open.value ? props.sources : props.sources.slice(0, props.initial)));
@@ -190,7 +184,7 @@ const SourceList = {
 
 const ValueRuler = {
 	template: '#value-ruler-template',
-	props: { mod: Object, values: Array },
+	props: { mod: Object, values: Array, picked: Number },
 	emits: ['pick'],
 	setup(props) {
 		const lo = computed(() => Math.min(props.values[0].v, 0));
@@ -228,6 +222,7 @@ const ValueRuler = {
 	},
 };
 
+const TYPE_LABEL = { p: 'Percent', a: 'Percent', f: 'Number', b: 'Yes/no' };
 const TYPE_TEXT = {
 	p: 'Percent. Write 0.05 for +5%.',
 	a: 'Percent, written as a whole number. Write 5 for +5%.',
@@ -237,13 +232,67 @@ const TYPE_TEXT = {
 const SCOPE_TEXT = { country: 'The country', unit: "All of the country's units", all: 'Any scope, the country included' };
 const FORMAT_TEXT = { FormatGold: 'gold', FormatManPower: 'manpower', FormatPopCaps: 'population' };
 
+const ModCard = {
+	template: '#mod-card-template',
+	props: { mod: Object, open: Boolean, active: Boolean },
+	emits: ['toggle', 'topic'],
+	setup(props) {
+		const badges = computed(() => {
+			const m = props.mod, b = [];
+			b.push({ text: TYPE_LABEL[m.t], tip: TYPE_TEXT[m.t], cls: 'bg-background text-muted' });
+			if (m.t !== 'b') {
+				if (m.g === 'good') b.push({ text: '▲ Higher is better', cls: 'bg-success-soft text-success-strong' });
+				else if (m.g === 'bad') b.push({ text: '▼ Lower is better', cls: 'bg-error-soft text-error-strong' });
+				else b.push({ text: 'Neutral', tip: 'The game shows it in a neutral colour', cls: 'bg-background text-muted' });
+			} else if (m.g === 'bad') b.push({ text: 'Harmful', cls: 'bg-error-soft text-error-strong' });
+			if (m.c === 'unit') b.push({ text: 'All units', tip: "Applies to all of the country's units", cls: 'bg-info-soft text-info-strong' });
+			if (m.c === 'all') b.push({ text: 'Any scope', tip: 'Works on any scope, the country included', cls: 'bg-info-soft text-info-strong' });
+			if (m.x) b.push({ text: m.x, tip: `From the ${m.x} DLC`, cls: 'bg-tertiary-soft text-tertiary-strong' });
+			return b;
+		});
+
+		const stats = computed(() => {
+			const m = props.mod;
+			if (!m.u) return [];
+			const [tv, tn] = m.top[0];
+			if (m.mn[0] === m.mx[0]) return [{ label: 'Always', v: tv, note: `${m.u}× in vanilla` }];
+			return [
+				{ label: 'Lowest', v: m.mn[0], src: SRC[m.mn[1]] },
+				{ label: 'Most common', v: tv, note: `${tn}× of ${m.u} fixed uses` },
+				{ label: 'Highest', v: m.mx[0], src: SRC[m.mx[1]] },
+			];
+		});
+
+		const notes = computed(() => {
+			const m = props.mod, n = [];
+			if (typeof m.b === 'number') n.push(`Every country starts with ${disp(m.b, m.t)}`);
+			else if (m.b !== undefined) n.push('Every country starts with a computed base value');
+			if (m.scn) n.push(`${m.scn} scaled at runtime`);
+			if (m.dyn) n.push(`${m.dyn} computed from game state`);
+			if (m.fl) n.push(`Granted ${m.fl}× in vanilla`);
+			if (!m.uses && m.b === undefined) n.push('Not used anywhere in vanilla script');
+			return n;
+		});
+
+		const moreText = computed(() => {
+			const m = props.mod, p = [];
+			if (m.vals) p.push(`${m.vals.length} ${m.vals.length === 1 ? 'value' : 'values'}`);
+			if (m.scn) p.push(`${m.scn} scaled`);
+			if (m.dyn) p.push(`${m.dyn} computed`);
+			if (m.fl) p.push(`${new Set(m.grants.map(g => g.s)).size} sources`);
+			return p.length ? p.join(', ') : 'definition and related modifiers';
+		});
+
+		return { badges, stats, notes, moreText, hl, copy, copied, disp, fnum, toneText: v => TONE_TEXT[tone(v, props.mod.g)] };
+	},
+};
+
 const ModDetail = {
 	template: '#mod-detail-template',
 	props: { mod: Object },
-	emits: ['topic'],
 	setup(props) {
 		const picked = ref(null);
-		watch(() => props.mod, () => (picked.value = null));
+		const all = reactive({ values: false, scaled: false, dyn: false });
 
 		const d = computed(() => {
 			const fixed = new Map();
@@ -265,6 +314,11 @@ const ModDetail = {
 			out.related = related(props.mod);
 			return out;
 		});
+		const maxN = computed(() => Math.max(1, ...d.value.values.map(e => e.n)));
+		const fixedTotal = computed(() => d.value.values.reduce((s, e) => s + e.n, 0));
+		const shownValues = computed(() => (all.values ? d.value.values : d.value.values.slice(0, 12)));
+		const shownScaled = computed(() => (all.scaled ? d.value.scaled : d.value.scaled.slice(0, 6)));
+		const shownDyn = computed(() => (all.dyn ? d.value.dyn : d.value.dyn.slice(0, 6)));
 
 		const facts = computed(() => {
 			const m = props.mod, df = m.df || {};
@@ -274,7 +328,6 @@ const ModDetail = {
 			else if (m.g === 'bad') f.push({ label: 'Better when', text: 'Lower', cls: TONE_TEXT.neg });
 			else f.push({ label: 'Better when', text: 'Neither: the game shows it in a neutral colour' });
 			f.push({ label: 'Applies to', text: SCOPE_TEXT[m.c] });
-			f.push({ label: 'Topic', text: m.tp, topic: true });
 			f.push({ label: 'From', text: m.x || 'Base game', cls: m.x ? 'text-tertiary-strong' : '' });
 			const limits = [];
 			if (df.z1) limits.push('The total is kept between 0 and 1');
@@ -300,41 +353,70 @@ const ModDetail = {
 			const v = m.top?.[0]?.[0] ?? (typeof m.b === 'number' ? m.b : { p: 0.1, a: 10, f: 1 }[m.t]);
 			return `${m.k} = ${raw(v)}`;
 		});
+		const snippet = computed(() => `my_static_modifier = {\n\tgame_data = {\n\t\tcategory = country\n\t}\n\t${line.value}\n}`);
 
 		const usageText = computed(() => {
 			const m = props.mod, { values, scaled, dyn, flags, base } = d.value;
 			const p = [];
 			if (values.length) {
-				const n = values.reduce((s, e) => s + e.n, 0);
 				const top = values.reduce((a, e) => (e.n > a.n ? e : a));
-				if (values.length === 1) p.push(`Always ${disp(top.v, m.t)} where it's written with a fixed value (${n}×).`);
-				else p.push(`Written with a fixed value ${n} times, from ${disp(values[0].v, m.t)} to ${disp(values.at(-1).v, m.t)}. Most often ${disp(top.v, m.t)} (${top.n}×).`);
+				if (values.length === 1) p.push(`Always ${disp(top.v, m.t)} where vanilla writes a fixed value (${fixedTotal.value}×).`);
+				else p.push(`Vanilla writes a fixed value ${fixedTotal.value} times, from ${disp(values[0].v, m.t)} to ${disp(values.at(-1).v, m.t)}, most often ${disp(top.v, m.t)} (${top.n}×).`);
 			}
-			if (scaled.length) p.push(`${scaled.length} ${scaled.length === 1 ? 'use is' : 'uses are'} scaled at runtime.`);
+			if (scaled.length) p.push(`${scaled.length} more ${scaled.length === 1 ? 'use is' : 'uses are'} scaled at runtime.`);
 			if (dyn.length) p.push(`${dyn.length} ${dyn.length === 1 ? 'use is' : 'uses are'} computed from game state.`);
 			if (flags.length) p.push(`Granted by ${flags.length} ${flags.length === 1 ? 'source' : 'sources'}.`);
-			if (base.length) p.push('Every country starts with a base value.');
-			return p.join(' ') || 'Not used anywhere in vanilla script.';
+			if (!p.length && base.length) p.push('Only set as a base value for every country.');
+			return p.join(' ') || 'Not used anywhere in vanilla script. The game defines it, so you can still use it in a mod.';
 		});
 
+		const rowId = v => `value-${props.mod.k}-${v}`;
 		function pickValue(v) {
 			picked.value = v;
-			nextTick(() => document.getElementById(`value-${v}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+			const at = d.value.values.findIndex(e => e.v === v);
+			if (at >= 12) all.values = true;
+			nextTick(() => document.getElementById(rowId(v))?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
 		}
 
 		return {
 			d,
+			all,
+			maxN,
+			fixedTotal,
+			shownValues,
+			shownScaled,
+			shownDyn,
 			facts,
 			line,
+			snippet,
 			usageText,
 			picked,
 			pickValue,
+			rowId,
 			copy,
 			copied,
 			fnum,
 			disp,
+			humanize,
 			toneText: v => TONE_TEXT[tone(v, props.mod.g)],
+			toneBg: v => TONE_BG[tone(v, props.mod.g)],
 		};
+	},
+};
+
+const SrcCard = {
+	template: '#src-card-template',
+	props: { src: Object, open: Boolean, active: Boolean },
+	emits: ['toggle'],
+	setup(props) {
+		const preview = computed(() =>
+			props.src.g.slice(0, 3).map(([mi, v, kind = 'f']) => {
+				const m = MODS[mi];
+				const has = v !== null && v !== undefined && kind !== 'y';
+				return { name: m.n, value: kind === 'y' ? '' : has ? disp(v, m.t) : '(computed)', tone: has ? TONE_TEXT[tone(v, m.g)] : '' };
+			}),
+		);
+		return { preview, hl };
 	},
 };
 
@@ -362,36 +444,17 @@ const SrcDetail = {
 	},
 };
 
-const Overview = {
-	template: '#overview-template',
-	props: { view: String },
-	setup() {
-		return {
-			stats: ST,
-			sourceCount: SRC.length,
-			mostUsed: [...MODS].sort((a, b) => b.uses - a.uses).slice(0, 12),
-			biggestSources: [...SRC].sort((a, b) => b.g.length - a.g.length).slice(0, 12),
-		};
-	},
-};
-
 // --- app ------------------------------------------------------------------------
 function parseHash() {
 	const m = location.hash.match(/^#\/(modifiers|sources)(?:\/(.+))?$/);
 	return m ? { view: m[1], id: decodeURIComponent(m[2] || '') } : { view: 'modifiers', id: '' };
 }
-const wide = () => matchMedia('(min-width: 768px)').matches;
 
 const app = createApp({
 	template: '#app-template',
 	setup() {
-		const route = ref(parseHash());
-		window.addEventListener('hashchange', () => (route.value = parseHash()));
-		const view = computed(() => route.value.view);
+		const view = ref('modifiers');
 		const otherView = computed(() => (view.value === 'modifiers' ? 'sources' : 'modifiers'));
-		const mod = computed(() => (view.value === 'modifiers' && route.value.id ? byKey.get(route.value.id) || null : null));
-		const src = computed(() => (view.value === 'sources' && route.value.id ? SRC[+route.value.id] || null : null));
-		const current = computed(() => mod.value || src.value);
 
 		const drawer = ref(false);
 		const topic = ref('');
@@ -457,11 +520,12 @@ const app = createApp({
 		const topicCounts = computed(() => counted(modBase.value, TOPICS, 'tp', 'All topics'));
 		const kindCounts = computed(() => counted(srcBase.value, KINDS, 'kind', 'All types').filter(k => k.n || !k.name || k.name === kind.value));
 
+		const title = x => x.n ?? x.title;
 		const sorters = {
-			match: (a, b) => b[1] - a[1] || collator.compare(a[0].n ?? a[0].title, b[0].n ?? b[0].title),
-			name: (a, b) => collator.compare(a[0].n ?? a[0].title, b[0].n ?? b[0].title),
+			match: (a, b) => b[1] - a[1] || collator.compare(title(a[0]), title(b[0])),
+			name: (a, b) => collator.compare(title(a[0]), title(b[0])),
 			key: (a, b) => collator.compare(a[0].k, b[0].k),
-			uses: (a, b) => (b[0].uses ?? b[0].g.length) - (a[0].uses ?? a[0].g.length) || collator.compare(a[0].n ?? a[0].title, b[0].n ?? b[0].title),
+			uses: (a, b) => (b[0].uses ?? b[0].g.length) - (a[0].uses ?? a[0].g.length) || collator.compare(title(a[0]), title(b[0])),
 		};
 		const list = computed(() => {
 			const isMods = view.value === 'modifiers';
@@ -472,18 +536,56 @@ const app = createApp({
 
 		const limit = ref(PAGE);
 		const shown = computed(() => list.value.slice(0, limit.value));
-		const listEl = ref(null);
+		const active = ref(-1);
+		const mainEl = ref(null);
 		const sentinel = ref(null);
-		const detailEl = ref(null);
 		const searchEl = ref(null);
 		watch(list, () => {
 			limit.value = PAGE;
-			if (listEl.value) listEl.value.scrollTop = 0;
+			active.value = -1;
+			if (mainEl.value) mainEl.value.scrollTop = 0;
 		});
-		watch(current, c => {
-			if (detailEl.value) detailEl.value.scrollTop = 0;
-			document.title = c ? `${c.n || c.title} – EU5 modifiers` : 'EU5 Country Modifiers';
-		});
+
+		const openMods = reactive(new Set());
+		const openSrcs = reactive(new Set());
+		const openSet = () => (view.value === 'modifiers' ? openMods : openSrcs);
+		const idOf = x => x.k ?? x.i;
+		const cardId = x => (x.k !== undefined ? `mod-${x.k}` : `src-${x.i}`);
+		const openCount = computed(() => openSet().size);
+		function toggle(item, i) {
+			const set = openSet();
+			if (set.has(idOf(item))) set.delete(idOf(item));
+			else set.add(idOf(item));
+			active.value = i;
+		}
+		function collapseAll() {
+			openSet().clear();
+		}
+
+		async function go(r) {
+			drawer.value = false;
+			view.value = r.view;
+			const item = r.view === 'modifiers' ? byKey.get(r.id) : r.id ? SRC[+r.id] : null;
+			await nextTick();
+			if (!item) {
+				if (mainEl.value) mainEl.value.scrollTop = 0;
+				return;
+			}
+			if (!list.value.includes(item)) {
+				query.value = '';
+				if (r.view === 'modifiers') topic.value = '';
+				else kind.value = '';
+				clearFilters();
+				await nextTick();
+			}
+			const at = list.value.indexOf(item);
+			if (at < 0) return;
+			if (at >= limit.value) limit.value = at + 20;
+			openSet().add(idOf(item));
+			active.value = at;
+			await nextTick();
+			document.getElementById(cardId(item))?.scrollIntoView({ block: 'start' });
+		}
 
 		const crossCount = computed(() => {
 			const ws = words.value, qq = q.value;
@@ -509,27 +611,23 @@ const app = createApp({
 		});
 
 		function pickTopic(name) {
+			if (view.value !== 'modifiers') history.pushState(null, '', '#/modifiers');
+			view.value = 'modifiers';
 			topic.value = name;
 			drawer.value = false;
-			if (!wide()) location.hash = '#/modifiers';
 		}
 		function pickKind(name) {
 			kind.value = name;
 			drawer.value = false;
 		}
 
-		function idOf(item) {
-			return view.value === 'modifiers' ? encodeURIComponent(item.k) : String(item.i);
-		}
 		function move(step) {
 			const items = list.value;
 			if (!items.length) return;
-			const at = items.indexOf(current.value);
-			const next = at < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, at + step));
-			if (next >= limit.value) limit.value = next + 50;
-			history.replaceState(null, '', `#/${view.value}/${idOf(items[next])}`);
-			route.value = parseHash();
-			nextTick(() => document.getElementById(`row-${next}`)?.scrollIntoView({ block: 'nearest' }));
+			const next = active.value < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, active.value + step));
+			if (next >= limit.value) limit.value = next + 20;
+			active.value = next;
+			nextTick(() => document.getElementById(cardId(items[next]))?.scrollIntoView({ block: 'nearest' }));
 		}
 		function onSearchKey(e) {
 			if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -537,8 +635,12 @@ const app = createApp({
 				move(e.key === 'ArrowDown' ? 1 : -1);
 			} else if (e.key === 'Enter') {
 				e.preventDefault();
-				if (!current.value) move(1);
-				else nextTick(() => detailEl.value?.querySelector('h1')?.focus());
+				if (active.value < 0) move(1);
+				const item = list.value[active.value];
+				if (item) {
+					toggle(item, active.value);
+					nextTick(() => document.getElementById(cardId(item))?.scrollIntoView({ block: 'nearest' }));
+				}
 			} else if (e.key === 'Escape' && query.value) {
 				e.stopPropagation();
 				query.value = '';
@@ -578,14 +680,24 @@ const app = createApp({
 		}
 
 		onMounted(() => {
-			const io = new IntersectionObserver(es => es.some(e => e.isIntersecting) && (limit.value += 250), {
-				root: listEl.value,
-				rootMargin: '400px',
+			const io = new IntersectionObserver(es => es.some(e => e.isIntersecting) && (limit.value += PAGE), {
+				root: mainEl.value,
+				rootMargin: '600px',
 			});
 			watch(sentinel, (el, old) => {
 				if (old) io.unobserve(old);
 				if (el) io.observe(el);
 			}, { immediate: true });
+
+			document.addEventListener('click', e => {
+				const a = e.target.closest?.('a[href^="#/"]');
+				if (!a || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+				e.preventDefault();
+				hideTip();
+				history.pushState(null, '', a.getAttribute('href'));
+				go(parseHash());
+			});
+			window.addEventListener('popstate', () => go(parseHash()));
 
 			document.addEventListener('pointerover', e => {
 				const el = e.target.closest?.('[data-tip]');
@@ -610,12 +722,7 @@ const app = createApp({
 				}
 			});
 
-			const at = list.value.indexOf(current.value);
-			if (at >= 0) {
-				if (at >= limit.value) limit.value = at + 50;
-				nextTick(() => document.getElementById(`row-${at}`)?.scrollIntoView({ block: 'center' }));
-			}
-			if (current.value) document.title = `${current.value.n || current.value.title} – EU5 modifiers`;
+			go(parseHash());
 		});
 
 		return {
@@ -623,11 +730,10 @@ const app = createApp({
 				{ id: 'modifiers', label: 'Modifiers', count: MODS.length.toLocaleString() },
 				{ id: 'sources', label: 'Sources', count: SRC.length.toLocaleString() },
 			],
+			stats: ST,
+			sourceCount: SRC.length,
 			view,
 			otherView,
-			mod,
-			src,
-			current,
 			query,
 			drawer,
 			topic,
@@ -646,9 +752,14 @@ const app = createApp({
 			list,
 			shown,
 			limit,
-			listEl,
+			active,
+			openMods,
+			openSrcs,
+			openCount,
+			toggle,
+			collapseAll,
+			mainEl,
 			sentinel,
-			detailEl,
 			searchEl,
 			crossCount,
 			countText,
@@ -660,11 +771,9 @@ const app = createApp({
 			tip,
 			tipEl,
 			copied,
-			hl,
-			summary,
 		};
 	},
 });
-const components = { ChipGroup, BackLink, SourceLink, SourceList, ValueRuler, ModDetail, SrcDetail, Overview };
+const components = { ChipGroup, ExpandToggle, SourceLink, SourceList, ValueRuler, ModCard, ModDetail, SrcCard, SrcDetail };
 for (const [name, c] of Object.entries(components)) app.component(name, c);
 app.mount('#app');

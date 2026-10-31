@@ -1,9 +1,10 @@
 # EU5 modifier reference
 
 Builds a searchable page listing every modifier a **country** can use in Europa Universalis V, read from the
-installed game and DLC files. For each modifier it shows the in-game name and description, the value type, which
-direction helps, the limits its definition sets, and every value the game itself uses, on a ruler from the lowest to
-the highest, with where each one comes from. A second view lists the **sources** — advances, laws, privileges,
+installed game and DLC files. Each modifier is a card with its in-game name and description, the value type, which
+direction helps, and the lowest / most common / highest value the game itself uses. Expanding a card shows every
+vanilla value on a ruler and in a list with where each one comes from, the limits its definition sets, a static
+modifier ready to copy, and related modifiers. A second view lists the **sources** — advances, laws, privileges,
 buildings, events… — and every modifier each one grants.
 
 ## Run it
@@ -26,11 +27,11 @@ from jsDelivr and Google Fonts at pinned versions. The data itself is inside the
 ## Using the page
 
 - Search matches key, in-game name and description; the best matches come first. `/` jumps to the search box,
-  ↑ ↓ move through the results, Enter opens one, Esc clears.
+  ↑ ↓ move between cards, Enter opens or closes one, Esc clears.
 - Topics in the sidebar come from the words in each key (`topics.py`), so a few modifiers sit in an odd one.
   "Used by" filters on what actually grants the modifier.
-- Every source links to its own page and every modifier back, and the URL follows, so back / forward and bookmarks
-  work.
+- Every source links to its card and every modifier back; following a link opens that card, and back / forward
+  and bookmarks work.
 
 ## How values are counted
 
