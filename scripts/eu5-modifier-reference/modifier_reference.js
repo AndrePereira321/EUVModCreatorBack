@@ -540,10 +540,14 @@ const app = createApp({
 		const mainEl = ref(null);
 		const sentinel = ref(null);
 		const searchEl = ref(null);
+		const introEl = ref(null);
 		watch(list, () => {
 			limit.value = PAGE;
 			active.value = -1;
-			if (mainEl.value) mainEl.value.scrollTop = 0;
+			const main = mainEl.value, intro = introEl.value;
+			if (!main || !intro) return;
+			const listTop = main.scrollTop + intro.getBoundingClientRect().bottom - main.getBoundingClientRect().top;
+			main.scrollTop = Math.min(main.scrollTop, listTop);
 		});
 
 		const openMods = reactive(new Set());
@@ -761,6 +765,7 @@ const app = createApp({
 			mainEl,
 			sentinel,
 			searchEl,
+			introEl,
 			crossCount,
 			countText,
 			emptyText,
