@@ -30,8 +30,10 @@ from jsDelivr and Google Fonts at pinned versions. The data itself is inside the
   ↑ ↓ move between cards, Enter opens or closes one, Esc clears.
 - Topics in the sidebar come from the words in each key (`topics.py`), so a few modifiers sit in an odd one.
   "Used by" filters on what actually grants the modifier.
-- Every source links to its card and every modifier back; following a link opens that card, and back / forward
-  and bookmarks work.
+- Every source links to its card and every modifier back; following a link opens that card. Back / forward
+  return to the page exactly as it was left: search, filters, open cards and scroll position.
+- Clicking a value copies it as a script line (`tax_income_efficiency = 0.1`); clicking a key copies the key.
+  A source's grants can be copied all at once.
 
 ## How values are counted
 

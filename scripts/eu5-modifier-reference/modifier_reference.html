@@ -130,6 +130,7 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 								<div><dt class="font-semibold">Scaled, computed and base values</dt><dd class="text-muted">Values the game multiplies, values from a formula, and the value every country starts with are listed apart and left out of the range.</dd></div>
 								<div><dt class="font-semibold">What's left out</dt><dd class="text-muted">Location, character and religion modifiers don't work in a country modifier. Unit modifiers do, and apply to all of the country's units.</dd></div>
 								<div><dt class="font-semibold">Check extreme values</dt><dd class="text-muted">Static modifiers the engine applies itself (difficulty, ruler skill) may be scaled in ways the files don't show. Open the source first.</dd></div>
+								<div class="sm:col-span-2"><dt class="font-semibold">Copying</dt><dd class="text-muted">Click any value to copy it as a script line, such as <code class="text-code">tax_income_efficiency = 0.1</code>. Click a key to copy just the key.</dd></div>
 								<div class="sm:col-span-2"><dt class="font-semibold">Keyboard</dt><dd class="text-muted"><kbd class="rounded border border-border px-1.5 text-caption">/</kbd> jumps to search. While searching, <kbd class="rounded border border-border px-1.5 text-caption">↑</kbd> <kbd class="rounded border border-border px-1.5 text-caption">↓</kbd> move between cards, <kbd class="rounded border border-border px-1.5 text-caption">Enter</kbd> opens or closes one, <kbd class="rounded border border-border px-1.5 text-caption">Esc</kbd> clears.</dd></div>
 							</dl>
 						</details>
@@ -143,7 +144,7 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 					</template>
 				</section>
 
-				<div class="sticky top-0 z-10 -mx-4 border-b border-border bg-background/95 px-4 pt-3 pb-1.5 backdrop-blur sm:-mx-6 sm:px-6">
+				<div ref="barEl" class="sticky top-0 z-10 -mx-4 border-b border-border bg-background/95 px-4 pt-3 pb-1.5 backdrop-blur sm:-mx-6 sm:px-6">
 					<div class="relative">
 						<svg class="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
 						<input ref="searchEl" v-model="query" type="search" autocomplete="off" spellcheck="false"
@@ -226,9 +227,18 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 </button>
 </script>
 
+<script type="text/x-template" id="copy-button-template">
+<button type="button" class="group/copy -mx-1.5 inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-primary-soft focus-visible:bg-primary-soft"
+	:data-tip="(copied === text ? 'Copied ' : 'Copy ') + text" @click="copy(text)">
+	<slot></slot>
+	<svg v-if="copied === text" class="shrink-0 text-success-600 dark:text-success-300" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+	<svg v-else class="shrink-0 text-muted opacity-0 transition-opacity group-hover/copy:opacity-100 group-focus-visible/copy:opacity-100 pointer-coarse:opacity-60" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+</button>
+</script>
+
 <script type="text/x-template" id="mod-card-template">
-<article :id="'mod-' + mod.k" class="scroll-mt-28 overflow-hidden rounded-xl border bg-surface [contain-intrinsic-size:auto_220px] [content-visibility:auto]"
-	:class="active ? 'border-primary ring-2 ring-primary-soft' : 'border-border'">
+<article :id="'mod-' + mod.k" class="scroll-mt-28 overflow-hidden rounded-xl border bg-surface"
+	:class="[active ? 'border-primary ring-2 ring-primary-soft' : 'border-border', open ? '' : '[contain-intrinsic-size:auto_220px] [content-visibility:auto]']">
 	<div class="px-5 pt-4 pb-4">
 		<div class="flex items-start justify-between gap-4">
 			<div class="min-w-0">
@@ -248,7 +258,7 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 			<div v-for="s in stats" :key="s.label" class="min-w-0 rounded-lg border border-border bg-background px-3 py-2.5">
 				<div class="text-caption text-muted">{{ s.label }}</div>
 				<div class="mt-0.5 flex items-baseline gap-2">
-					<span class="text-subheading tabular-nums" :class="toneText(s.v)">{{ disp(s.v, mod.t) }}</span>
+					<copy-button :text="lineFor(mod, s.v)"><span class="text-subheading tabular-nums" :class="toneText(s.v)">{{ disp(s.v, mod.t) }}</span></copy-button>
 					<span v-if="mod.t !== 'f'" class="text-caption text-muted tabular-nums">written {{ fnum(s.v) }}</span>
 				</div>
 				<div class="mt-0.5 truncate text-caption">
@@ -269,23 +279,23 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 </script>
 
 <script type="text/x-template" id="mod-detail-template">
-<div class="border-t border-border bg-background px-5 py-6 sm:px-6">
+<div class="border-t border-border bg-background px-5 py-4">
 	<p class="max-w-prose text-small text-foreground">{{ usageText }}</p>
 
 	<template v-if="d.values.length">
 		<value-ruler :mod="mod" :values="d.values" :picked="picked" @pick="pickValue"></value-ruler>
 
-		<div class="mt-8 flex items-baseline justify-between gap-4">
+		<div class="mt-5 flex items-baseline justify-between gap-4">
 			<h3 class="text-label font-semibold text-foreground">Fixed values</h3>
-			<span class="text-caption text-muted">lowest first</span>
+			<span class="text-caption text-muted">lowest first, click a value to copy it</span>
 		</div>
-		<ol class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+		<ol class="mt-1.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
 			<li v-for="e in shownValues" :key="e.v" :id="rowId(e.v)"
-				class="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 px-3 py-2.5 transition-colors sm:grid-cols-[5.5rem_8rem_minmax(0,1fr)]"
+				class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 px-3 py-1.5 transition-colors sm:grid-cols-[7rem_6.5rem_minmax(0,1fr)]"
 				:class="picked === e.v ? 'bg-primary-soft' : ''">
-				<div>
-					<div class="text-label tabular-nums" :class="toneText(e.v)">{{ disp(e.v, mod.t) }}</div>
-					<div v-if="mod.t !== 'f'" class="text-caption text-muted tabular-nums">{{ fnum(e.v) }}</div>
+				<div class="flex flex-col items-start sm:flex-row sm:items-baseline sm:gap-1">
+					<copy-button :text="lineFor(mod, e.v)" @click="picked = e.v"><span class="text-label tabular-nums" :class="toneText(e.v)">{{ disp(e.v, mod.t) }}</span></copy-button>
+					<span v-if="mod.t !== 'f'" class="text-caption text-muted tabular-nums">{{ fnum(e.v) }}</span>
 				</div>
 				<div class="hidden items-center gap-2 pt-1.5 sm:flex sm:self-start" :data-tip="`Used ${e.n} of ${fixedTotal} times`">
 					<span class="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
@@ -295,95 +305,94 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 				</div>
 				<div class="min-w-0 text-small">
 					<span class="mr-1 text-caption text-muted sm:hidden">{{ e.n }}×</span>
-					<source-list :sources="e.srcs"></source-list>
-					<p v-if="e.via.length" class="mt-1 text-caption text-muted">Written as <code class="text-code break-all">{{ e.via.join(', ') }}</code></p>
+					<source-list :sources="e.srcs" :initial="2" :memo="rowId(e.v)"></source-list>
+					<p v-if="e.via.length" class="text-caption text-muted">Written as <code class="text-code break-all">{{ e.via.join(', ') }}</code></p>
 				</div>
 			</li>
 		</ol>
-		<button v-if="d.values.length > 12" type="button" class="mt-2 text-caption text-secondary-strong hover:underline" @click="all.values = !all.values">
+		<button v-if="d.values.length > SHOWN.values" type="button" class="mt-1.5 text-caption text-secondary-strong hover:underline" @click="all.values = !all.values">
 			{{ all.values ? 'Show fewer values' : 'Show all ' + d.values.length + ' values' }}
 		</button>
 	</template>
 
-	<div v-if="d.base.length" class="mt-6 rounded-lg border border-info-soft bg-info-soft/50 px-4 py-3 text-small">
+	<div v-if="d.base.length" class="mt-4 rounded-lg border border-info-soft bg-info-soft/50 px-3 py-2 text-small">
 		<p v-for="(g, i) in d.base" :key="i">
 			<span class="text-foreground">Every country starts with </span>
-			<span v-if="g.v != null" class="font-semibold tabular-nums" :class="toneText(g.v)">{{ disp(g.v, mod.t) }}</span>
+			<copy-button v-if="g.v != null" :text="lineFor(mod, g.v)" class="mx-0"><span class="font-semibold tabular-nums" :class="toneText(g.v)">{{ disp(g.v, mod.t) }}</span></copy-button>
 			<code v-else class="text-code">{{ g.note }}</code>
 			<span class="text-muted">{{ ' from ' }}</span><source-link :s="g.s"></source-link><span class="text-muted">. It isn't counted in the range.</span>
 		</p>
 	</div>
 
 	<template v-if="d.scaled.length">
-		<h3 class="mt-8 text-label font-semibold text-foreground">Scaled at runtime</h3>
-		<p class="text-caption text-muted">The game multiplies these, so the written number isn't the real effect.</p>
-		<ul class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
-			<li v-for="(g, i) in shownScaled" :key="i" class="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 px-3 py-2.5">
-				<div>
-					<div class="text-label tabular-nums" :class="toneText(g.v)">{{ disp(g.v, mod.t) }}</div>
-					<div v-if="mod.t !== 'f'" class="text-caption text-muted tabular-nums">{{ fnum(g.v) }}</div>
+		<h3 class="mt-5 text-label font-semibold text-foreground">Scaled at runtime <span class="font-normal text-caption text-muted">the game multiplies these, so the written number isn't the real effect</span></h3>
+		<ul class="mt-1.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+			<li v-for="(g, i) in shownScaled" :key="i" class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 px-3 py-1.5 sm:grid-cols-[7rem_minmax(0,1fr)]">
+				<div class="flex flex-col items-start sm:flex-row sm:items-baseline sm:gap-1">
+					<copy-button :text="lineFor(mod, g.v)"><span class="text-label tabular-nums" :class="toneText(g.v)">{{ disp(g.v, mod.t) }}</span></copy-button>
+					<span v-if="mod.t !== 'f'" class="text-caption text-muted tabular-nums">{{ fnum(g.v) }}</span>
 				</div>
-				<div class="min-w-0 text-small">
-					<div class="text-foreground">{{ humanize(g.note) }}</div>
-					<div class="text-caption"><source-link :s="g.s"></source-link></div>
-				</div>
+				<p class="min-w-0 text-small">
+					<span class="text-foreground">{{ humanize(g.note) }}</span><span class="text-muted">{{ ' in ' }}</span><source-link :s="g.s"></source-link>
+				</p>
 			</li>
 		</ul>
-		<button v-if="d.scaled.length > 6" type="button" class="mt-2 text-caption text-secondary-strong hover:underline" @click="all.scaled = !all.scaled">
+		<button v-if="d.scaled.length > SHOWN.other" type="button" class="mt-1.5 text-caption text-secondary-strong hover:underline" @click="all.scaled = !all.scaled">
 			{{ all.scaled ? 'Show fewer' : 'Show all ' + d.scaled.length }}
 		</button>
 	</template>
 
 	<template v-if="d.dyn.length">
-		<h3 class="mt-8 text-label font-semibold text-foreground">Computed from game state</h3>
-		<p class="text-caption text-muted">A formula that depends on the country, so there's no single number.</p>
-		<ul class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
-			<li v-for="(g, i) in shownDyn" :key="i" class="px-3 py-2.5 text-small">
-				<code class="text-code break-all text-foreground">{{ g.note }}</code>
-				<div class="text-caption"><source-link :s="g.s"></source-link></div>
+		<h3 class="mt-5 text-label font-semibold text-foreground">Computed from game state <span class="font-normal text-caption text-muted">a formula, so there's no single number</span></h3>
+		<ul class="mt-1.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+			<li v-for="(g, i) in shownDyn" :key="i" class="px-3 py-1.5 text-small">
+				<code class="text-code break-all text-foreground">{{ g.note }}</code><span class="text-muted">{{ ' in ' }}</span><source-link :s="g.s"></source-link>
 			</li>
 		</ul>
-		<button v-if="d.dyn.length > 6" type="button" class="mt-2 text-caption text-secondary-strong hover:underline" @click="all.dyn = !all.dyn">
+		<button v-if="d.dyn.length > SHOWN.other" type="button" class="mt-1.5 text-caption text-secondary-strong hover:underline" @click="all.dyn = !all.dyn">
 			{{ all.dyn ? 'Show fewer' : 'Show all ' + d.dyn.length }}
 		</button>
 	</template>
 
 	<template v-if="d.flags.length">
-		<h3 class="mt-8 text-label font-semibold text-foreground">Granted by</h3>
-		<div class="mt-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-small"><source-list :sources="d.flags" :initial="12"></source-list></div>
+		<h3 class="mt-5 text-label font-semibold text-foreground">Granted by</h3>
+		<div class="mt-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-small"><source-list :sources="d.flags" :initial="12" :memo="'flags-' + mod.k"></source-list></div>
 	</template>
 
-	<div class="mt-8 grid gap-3 md:grid-cols-2">
-		<section class="rounded-lg border border-border bg-surface p-4">
+	<div class="mt-5 grid gap-3 md:grid-cols-2">
+		<section class="rounded-lg border border-border bg-surface p-3">
 			<h3 class="text-label font-semibold text-foreground">Definition</h3>
-			<dl class="mt-3 grid grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-small">
+			<dl class="mt-2 grid grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-small">
 				<template v-for="f in facts" :key="f.label">
 					<dt class="text-muted">{{ f.label }}</dt>
 					<dd :class="f.cls || 'text-foreground'">{{ f.text }}</dd>
 				</template>
 			</dl>
 		</section>
-		<section class="flex flex-col rounded-lg border border-border bg-surface p-4">
+		<section class="flex flex-col rounded-lg border border-border bg-surface p-3">
 			<h3 class="text-label font-semibold text-foreground">Use it</h3>
-			<p class="mt-1 text-caption text-muted">A static modifier in the format the game's own files use, with the most common vanilla value.</p>
-			<pre class="mt-3 flex-1 overflow-x-auto rounded-md border border-border bg-background px-3 py-2.5 text-code text-foreground [tab-size:4]"><code>{{ snippet }}</code></pre>
-			<div class="mt-3 flex flex-wrap gap-2">
-				<button type="button" class="rounded-md bg-primary px-3 py-1.5 text-label text-primary-foreground hover:bg-[color-mix(in_oklab,var(--primary),var(--primary-strong)_25%)]" @click="copy(snippet)">
+			<p class="text-caption text-muted">
+				A static modifier with
+				{{ picked != null ? 'the value you picked.' : 'the most common value. Pick another on the ruler or in the list.' }}
+			</p>
+			<pre class="mt-2 flex-1 overflow-x-auto rounded-md border border-border bg-background px-3 py-2 text-code text-foreground [tab-size:4]"><code>{{ snippet }}</code></pre>
+			<div class="mt-2 flex flex-wrap gap-2">
+				<button type="button" class="rounded-md bg-primary px-3 py-1 text-label text-primary-foreground hover:bg-[color-mix(in_oklab,var(--primary),var(--primary-strong)_25%)]" @click="copy(snippet)">
 					{{ copied === snippet ? 'Copied' : 'Copy block' }}
 				</button>
-				<button type="button" class="rounded-md border border-border px-3 py-1.5 text-label text-foreground hover:bg-background" @click="copy(line)">
+				<button type="button" class="rounded-md border border-border px-3 py-1 text-label text-foreground hover:bg-background" @click="copy(line)">
 					{{ copied === line ? 'Copied' : 'Copy line only' }}
 				</button>
 			</div>
 		</section>
 	</div>
 
-	<section v-if="d.related.length" class="mt-8">
+	<section v-if="d.related.length" class="mt-5">
 		<h3 class="text-label font-semibold text-foreground">Related modifiers</h3>
-		<ul class="mt-2 flex flex-wrap gap-2">
+		<ul class="mt-1.5 flex flex-wrap gap-1.5">
 			<li v-for="r in d.related" :key="r.k">
 				<a :href="'#/modifiers/' + encodeURIComponent(r.k)" :data-tip="r.k"
-					class="inline-block rounded-full border border-border bg-surface px-3 py-1 text-label text-secondary-strong hover:border-secondary hover:bg-secondary-soft">{{ r.n }}</a>
+					class="inline-block rounded-full border border-border bg-surface px-2.5 py-0.5 text-small text-secondary-strong hover:border-secondary hover:bg-secondary-soft">{{ r.n }}</a>
 			</li>
 		</ul>
 	</section>
@@ -391,25 +400,25 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 </script>
 
 <script type="text/x-template" id="value-ruler-template">
-<figure class="mt-5 rounded-lg border border-border bg-surface px-4 pt-3 pb-2">
-	<div class="relative mx-2 h-28 select-none">
+<figure class="mt-3 rounded-lg border border-border bg-surface px-4 pt-2 pb-1.5">
+	<div class="relative mx-2 h-[5.25rem] select-none">
 		<button v-for="t in ticks" :key="t.v" type="button" :data-tip="t.tip" :aria-label="t.label"
-			class="group absolute bottom-[3.25rem] flex w-3 -translate-x-1/2 flex-col items-center"
+			class="group absolute bottom-[2.5rem] flex w-3 -translate-x-1/2 flex-col items-center"
 			:style="{ left: t.x + '%', height: t.h + 'px' }" @click="$emit('pick', t.v)">
 			<span v-if="t.top || t.v === picked" class="-mb-0.5 size-2 shrink-0 rounded-full" :class="t.bg"></span>
 			<span class="w-[3px] flex-1 rounded-t-full" :class="[t.bg, t.top || t.v === picked ? 'opacity-100' : 'opacity-55 group-hover:opacity-100']"></span>
 		</button>
 		<span v-if="top" class="absolute -translate-x-1/2 text-caption whitespace-nowrap text-foreground"
-			:style="{ left: clampLabel(top.x) + '%', bottom: (3.25 + top.h / 16 + 0.35) + 'rem' }">
+			:style="{ left: clampLabel(top.x) + '%', bottom: (2.5 + top.h / 16 + 0.3) + 'rem' }">
 			{{ disp(top.v, mod.t) }} <span class="text-muted">most common</span>
 		</span>
-		<div class="scale-bar absolute right-0 bottom-10 left-0 h-3 rounded-[1px]"></div>
-		<div v-if="zero !== null" class="absolute bottom-8 h-7 w-px bg-foreground" :style="{ left: zero + '%' }"></div>
-		<span class="absolute bottom-2 left-0 text-caption tabular-nums" :class="toneText(lo)">{{ disp(lo, mod.t) }}</span>
-		<span v-if="zero !== null && zero > 12 && zero < 88" class="absolute bottom-2 -translate-x-1/2 text-caption text-muted" :style="{ left: zero + '%' }">0</span>
-		<span class="absolute right-0 bottom-2 text-caption tabular-nums" :class="toneText(hi)">{{ disp(hi, mod.t) }}</span>
+		<div class="scale-bar absolute right-0 bottom-7 left-0 h-3 rounded-[1px]"></div>
+		<div v-if="zero !== null" class="absolute bottom-5 h-7 w-px bg-foreground" :style="{ left: zero + '%' }"></div>
+		<span class="absolute bottom-0 left-0 text-caption tabular-nums" :class="toneText(lo)">{{ disp(lo, mod.t) }}</span>
+		<span v-if="zero !== null && zero > 12 && zero < 88" class="absolute bottom-0 -translate-x-1/2 text-caption text-muted" :style="{ left: zero + '%' }">0</span>
+		<span class="absolute right-0 bottom-0 text-caption tabular-nums" :class="toneText(hi)">{{ disp(hi, mod.t) }}</span>
 	</div>
-	<figcaption class="border-t border-border pt-2 text-caption text-muted">Each tick is a value vanilla writes; taller ones are used more often. Hover a tick to see where, click it to find it below.</figcaption>
+	<figcaption class="mt-1 text-caption text-muted">Each tick is a vanilla value, taller means used more often. Hover a tick to see where, click it to pick it.</figcaption>
 </figure>
 </script>
 
@@ -427,8 +436,8 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 </script>
 
 <script type="text/x-template" id="src-card-template">
-<article :id="'src-' + src.i" class="scroll-mt-28 overflow-hidden rounded-xl border bg-surface [contain-intrinsic-size:auto_220px] [content-visibility:auto]"
-	:class="active ? 'border-primary ring-2 ring-primary-soft' : 'border-border'">
+<article :id="'src-' + src.i" class="scroll-mt-28 overflow-hidden rounded-xl border bg-surface"
+	:class="[active ? 'border-primary ring-2 ring-primary-soft' : 'border-border', open ? '' : '[contain-intrinsic-size:auto_220px] [content-visibility:auto]']">
 	<div class="px-5 pt-4 pb-4">
 		<div class="flex items-start justify-between gap-4">
 			<h2 class="min-w-0 text-subheading text-foreground" v-html="hl(src.title)"></h2>
@@ -452,12 +461,13 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 </script>
 
 <script type="text/x-template" id="src-detail-template">
-<div class="border-t border-border bg-background px-5 py-5 sm:px-6">
+<div class="border-t border-border bg-background px-5 py-4">
 	<ul class="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
-		<li v-for="(r, i) in rows" :key="i" class="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 px-3 py-2.5">
-			<div>
-				<div class="text-label tabular-nums" :class="r.tone">{{ r.shown || r.written }}</div>
-				<div v-if="r.shown" class="text-caption text-muted tabular-nums">{{ r.written }}</div>
+		<li v-for="(r, i) in rows" :key="i" class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 px-3 py-1.5 sm:grid-cols-[7rem_minmax(0,1fr)]">
+			<div class="flex flex-col items-start sm:flex-row sm:items-baseline sm:gap-1">
+				<copy-button v-if="r.line" :text="r.line"><span class="text-label tabular-nums" :class="r.tone">{{ r.shown || r.written }}</span></copy-button>
+				<span v-else class="text-label tabular-nums">{{ r.written }}</span>
+				<span v-if="r.shown" class="text-caption text-muted tabular-nums">{{ r.written }}</span>
 			</div>
 			<div class="min-w-0">
 				<a :href="'#/modifiers/' + encodeURIComponent(r.m.k)" class="text-label text-secondary-strong hover:underline">{{ r.m.n }}</a>
@@ -466,7 +476,12 @@ html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0
 			</div>
 		</li>
 	</ul>
-	<p class="mt-3 text-caption text-muted">Defined in <code class="text-code break-all">{{ src.file }}</code></p>
+	<div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+		<p class="text-caption text-muted">Defined in <code class="text-code break-all">{{ src.file }}</code></p>
+		<button v-if="lines" type="button" class="rounded-md border border-border px-3 py-1.5 text-label text-foreground hover:bg-surface" @click="copy(lines)">
+			{{ copied === lines ? 'Copied' : 'Copy every value' }}
+		</button>
+	</div>
 </div>
 </script>
 

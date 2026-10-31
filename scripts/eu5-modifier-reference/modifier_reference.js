@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, watch, nextTick, onMounted, markRaw } = Vue;
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted, markRaw, toRef } = Vue;
 const { computePosition, offset, flip, shift } = FloatingUIDOM;
 
 const DATA = JSON.parse(document.getElementById('eu5-data').textContent);
@@ -6,6 +6,14 @@ const MODS = markRaw(DATA.mods);
 const SRC = markRaw(DATA.src);
 const ST = DATA.stats;
 const PAGE = 60;
+const SHOWN = { values: 8, other: 4 };
+
+// Panel state outlives its component, so a card that unmounts on navigation comes back as it was left.
+const memo = new Map();
+function remembered(key, init) {
+	if (!memo.has(key)) memo.set(key, reactive(init()));
+	return memo.get(key);
+}
 
 // --- formatting ---------------------------------------------------------------
 const norm = s => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
@@ -25,6 +33,7 @@ function tone(v, g) {
 	if (g === 'neutral' || v === 0) return 'neu';
 	return (v > 0) === (g !== 'bad') ? 'pos' : 'neg';
 }
+const lineFor = (m, v) => (m.t === 'b' ? `${m.k} = yes` : `${m.k} = ${raw(v)}`);
 const TONE_TEXT = { pos: 'text-success-600 dark:text-success-300', neg: 'text-error-600 dark:text-error-300', neu: 'text-foreground' };
 const TONE_BG = { pos: 'bg-success', neg: 'bg-error', neu: 'bg-muted' };
 
@@ -174,12 +183,18 @@ const SourceLink = {
 
 const SourceList = {
 	template: '#source-list-template',
-	props: { sources: Array, initial: { type: Number, default: 3 } },
+	props: { sources: Array, initial: { type: Number, default: 3 }, memo: String },
 	setup(props) {
-		const open = ref(false);
+		const open = toRef(props.memo ? remembered(props.memo, () => ({ open: false })) : reactive({ open: false }), 'open');
 		const visible = computed(() => (open.value ? props.sources : props.sources.slice(0, props.initial)));
 		return { open, visible };
 	},
+};
+
+const CopyButton = {
+	template: '#copy-button-template',
+	props: { text: String },
+	setup: () => ({ copy, copied }),
 };
 
 const ValueRuler = {
@@ -201,7 +216,7 @@ const ValueRuler = {
 				return {
 					v: e.v,
 					x: pos(e.v),
-					h: 8 + 32 * Math.sqrt(e.n / most),
+					h: 6 + 22 * Math.sqrt(e.n / most),
 					bg: TONE_BG[tone(e.v, mod.g)],
 					top: e === top,
 					tip: `${disp(e.v, mod.t)}${written}\nUsed ${e.n}×: ${names}${more}`,
@@ -283,7 +298,7 @@ const ModCard = {
 			return p.length ? p.join(', ') : 'definition and related modifiers';
 		});
 
-		return { badges, stats, notes, moreText, hl, copy, copied, disp, fnum, toneText: v => TONE_TEXT[tone(v, props.mod.g)] };
+		return { badges, stats, notes, moreText, hl, copy, copied, disp, fnum, lineFor, toneText: v => TONE_TEXT[tone(v, props.mod.g)] };
 	},
 };
 
@@ -291,8 +306,8 @@ const ModDetail = {
 	template: '#mod-detail-template',
 	props: { mod: Object },
 	setup(props) {
-		const picked = ref(null);
-		const all = reactive({ values: false, scaled: false, dyn: false });
+		const all = remembered(`mod-${props.mod.k}`, () => ({ values: false, scaled: false, dyn: false, picked: null }));
+		const picked = toRef(all, 'picked');
 
 		const d = computed(() => {
 			const fixed = new Map();
@@ -316,9 +331,9 @@ const ModDetail = {
 		});
 		const maxN = computed(() => Math.max(1, ...d.value.values.map(e => e.n)));
 		const fixedTotal = computed(() => d.value.values.reduce((s, e) => s + e.n, 0));
-		const shownValues = computed(() => (all.values ? d.value.values : d.value.values.slice(0, 12)));
-		const shownScaled = computed(() => (all.scaled ? d.value.scaled : d.value.scaled.slice(0, 6)));
-		const shownDyn = computed(() => (all.dyn ? d.value.dyn : d.value.dyn.slice(0, 6)));
+		const shownValues = computed(() => (all.values ? d.value.values : d.value.values.slice(0, SHOWN.values)));
+		const shownScaled = computed(() => (all.scaled ? d.value.scaled : d.value.scaled.slice(0, SHOWN.other)));
+		const shownDyn = computed(() => (all.dyn ? d.value.dyn : d.value.dyn.slice(0, SHOWN.other)));
 
 		const facts = computed(() => {
 			const m = props.mod, df = m.df || {};
@@ -349,9 +364,7 @@ const ModDetail = {
 
 		const line = computed(() => {
 			const m = props.mod;
-			if (m.t === 'b') return `${m.k} = yes`;
-			const v = m.top?.[0]?.[0] ?? (typeof m.b === 'number' ? m.b : { p: 0.1, a: 10, f: 1 }[m.t]);
-			return `${m.k} = ${raw(v)}`;
+			return lineFor(m, picked.value ?? m.top?.[0]?.[0] ?? (typeof m.b === 'number' ? m.b : { p: 0.1, a: 10, f: 1 }[m.t]));
 		});
 		const snippet = computed(() => `my_static_modifier = {\n\tgame_data = {\n\t\tcategory = country\n\t}\n\t${line.value}\n}`);
 
@@ -374,7 +387,7 @@ const ModDetail = {
 		function pickValue(v) {
 			picked.value = v;
 			const at = d.value.values.findIndex(e => e.v === v);
-			if (at >= 12) all.values = true;
+			if (at >= SHOWN.values) all.values = true;
 			nextTick(() => document.getElementById(rowId(v))?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
 		}
 
@@ -397,7 +410,9 @@ const ModDetail = {
 			copied,
 			fnum,
 			disp,
+			lineFor,
 			humanize,
+			SHOWN,
 			toneText: v => TONE_TEXT[tone(v, props.mod.g)],
 			toneBg: v => TONE_BG[tone(v, props.mod.g)],
 		};
@@ -429,9 +444,9 @@ const SrcDetail = {
 				.map(([mi, v, kind = 'f', note]) => {
 					const m = MODS[mi];
 					const has = v !== null && v !== undefined;
-					const row = { m, written: '—', shown: '', note: '', code: '', tone: has ? TONE_TEXT[tone(v, m.g)] : '' };
-					if (kind === 'y') Object.assign(row, { written: 'yes', note: 'Yes/no flag' });
-					else if (has) Object.assign(row, { written: fnum(v), shown: m.t === 'f' ? '' : disp(v, m.t) });
+					const row = { m, written: '—', shown: '', note: '', code: '', line: '', tone: has ? TONE_TEXT[tone(v, m.g)] : '' };
+					if (kind === 'y') Object.assign(row, { written: 'yes', note: 'Yes/no flag', line: `${m.k} = yes` });
+					else if (has) Object.assign(row, { written: fnum(v), shown: m.t === 'f' ? '' : disp(v, m.t), line: lineFor(m, v) });
 					if (kind === 's') row.note = humanize(note);
 					else if (kind === 'd') Object.assign(row, { note: 'Computed from game state:', code: note });
 					else if (kind === 'b') Object.assign(row, { note: 'Base value for every country', code: note || '' });
@@ -440,7 +455,8 @@ const SrcDetail = {
 				})
 				.sort((a, b) => collator.compare(a.m.n, b.m.n)),
 		);
-		return { rows };
+		const lines = computed(() => rows.value.filter(r => r.line).map(r => r.line).join('\n'));
+		return { rows, lines, copy, copied };
 	},
 };
 
@@ -464,9 +480,11 @@ const app = createApp({
 		const srcContent = ref('');
 		const sorts = reactive({ modifiers: 'name', sources: 'name' });
 		const sort = computed({ get: () => sorts[view.value], set: v => (sorts[view.value] = v) });
+		let restoring = false;
 		watch(
 			() => !!q.value,
 			has => {
+				if (restoring) return;
 				for (const v of ['modifiers', 'sources']) {
 					if (has && sorts[v] === 'name') sorts[v] = 'match';
 					if (!has && sorts[v] === 'match') sorts[v] = 'name';
@@ -541,7 +559,9 @@ const app = createApp({
 		const sentinel = ref(null);
 		const searchEl = ref(null);
 		const introEl = ref(null);
+		const barEl = ref(null);
 		watch(list, () => {
+			if (restoring) return;
 			limit.value = PAGE;
 			active.value = -1;
 			const main = mainEl.value, intro = introEl.value;
@@ -591,6 +611,78 @@ const app = createApp({
 			document.getElementById(cardId(item))?.scrollIntoView({ block: 'start' });
 		}
 
+		// Back and forward restore each history entry from the state saved into it. The scroll position is kept as
+		// the card at the top of the list plus its offset, because cards off screen only have an estimated height.
+		const state = () => ({
+			view: view.value,
+			query: query.value,
+			topic: topic.value,
+			kind: kind.value,
+			system: system.value,
+			filters: { ...filters },
+			srcContent: srcContent.value,
+			sorts: { ...sorts },
+			openMods: [...openMods],
+			openSrcs: [...openSrcs],
+			limit: limit.value,
+			active: active.value,
+		});
+		function snapshot() {
+			const s = { ...state(), scroll: 0, anchor: '', anchorTop: 0 };
+			const main = mainEl.value, bar = barEl.value?.getBoundingClientRect();
+			if (!main || !bar) return s;
+			s.scroll = main.scrollTop;
+			let card = null;
+			for (const dy of [8, 24, 60]) if (!card) card = document.elementFromPoint(bar.left + 32, bar.bottom + dy)?.closest('article[id]');
+			if (card && main.contains(card)) {
+				s.anchor = card.id;
+				s.anchorTop = card.getBoundingClientRect().top - main.getBoundingClientRect().top;
+			}
+			return s;
+		}
+		let saveTimer = 0;
+		function save() {
+			clearTimeout(saveTimer);
+			history.replaceState(snapshot(), '');
+		}
+		function saveSoon() {
+			clearTimeout(saveTimer);
+			saveTimer = setTimeout(save, 250);
+		}
+		function setTo(set, ids) {
+			set.clear();
+			for (const id of ids) set.add(id);
+		}
+		async function restore(s) {
+			restoring = true;
+			drawer.value = false;
+			view.value = s.view;
+			query.value = s.query;
+			topic.value = s.topic;
+			kind.value = s.kind;
+			system.value = s.system;
+			Object.assign(filters, s.filters);
+			srcContent.value = s.srcContent;
+			Object.assign(sorts, s.sorts);
+			setTo(openMods, s.openMods);
+			setTo(openSrcs, s.openSrcs);
+			limit.value = s.limit;
+			active.value = s.active;
+			await nextTick();
+			restoring = false;
+			const main = mainEl.value;
+			if (!main) return;
+			main.scrollTop = s.scroll;
+			let frames = 0;
+			const align = () => {
+				const card = s.anchor && document.getElementById(s.anchor);
+				if (!card) return;
+				main.scrollTop += card.getBoundingClientRect().top - main.getBoundingClientRect().top - s.anchorTop;
+				if (++frames < 8) requestAnimationFrame(align);
+			};
+			align();
+		}
+
 		const crossCount = computed(() => {
 			const ws = words.value, qq = q.value;
 			if (!ws.length) return 0;
@@ -615,7 +707,10 @@ const app = createApp({
 		});
 
 		function pickTopic(name) {
-			if (view.value !== 'modifiers') history.pushState(null, '', '#/modifiers');
+			if (view.value !== 'modifiers') {
+				save();
+				history.pushState(null, '', '#/modifiers');
+			}
 			view.value = 'modifiers';
 			topic.value = name;
 			drawer.value = false;
@@ -682,6 +777,7 @@ const app = createApp({
 			tipFor = null;
 			tip.open = false;
 		}
+		watch(copied, () => nextTick(() => tipFor && (tip.text = tipFor.dataset.tip)));
 
 		onMounted(() => {
 			const io = new IntersectionObserver(es => es.some(e => e.isIntersecting) && (limit.value += PAGE), {
@@ -698,10 +794,19 @@ const app = createApp({
 				if (!a || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
 				e.preventDefault();
 				hideTip();
+				save();
 				history.pushState(null, '', a.getAttribute('href'));
 				go(parseHash());
 			});
-			window.addEventListener('popstate', () => go(parseHash()));
+			window.addEventListener('popstate', e => {
+				clearTimeout(saveTimer);
+				hideTip();
+				if (e.state) restore(e.state);
+				else go(parseHash());
+			});
+			history.scrollRestoration = 'manual';
+			mainEl.value.addEventListener('scroll', saveSoon, { passive: true });
+			watch(state, saveSoon);
 
 			document.addEventListener('pointerover', e => {
 				const el = e.target.closest?.('[data-tip]');
@@ -726,7 +831,8 @@ const app = createApp({
 				}
 			});
 
-			go(parseHash());
+			if (history.state) restore(history.state);
+			else go(parseHash());
 		});
 
 		return {
@@ -766,6 +872,7 @@ const app = createApp({
 			sentinel,
 			searchEl,
 			introEl,
+			barEl,
 			crossCount,
 			countText,
 			emptyText,
@@ -779,6 +886,6 @@ const app = createApp({
 		};
 	},
 });
-const components = { ChipGroup, ExpandToggle, SourceLink, SourceList, ValueRuler, ModCard, ModDetail, SrcCard, SrcDetail };
+const components = { ChipGroup, ExpandToggle, SourceLink, SourceList, CopyButton, ValueRuler, ModCard, ModDetail, SrcCard, SrcDetail };
 for (const [name, c] of Object.entries(components)) app.component(name, c);
 app.mount('#app');
