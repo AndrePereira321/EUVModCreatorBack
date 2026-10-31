@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "scripts/eu5-modifier-reference/modifier_reference.html"
+        ],
+        "createdAt": "2026-10-31T16:30:52.752Z",
+        "reason": "user confirmed: chose 'Match the app' for the reference page's look; the background is the frontend theme's neutral-100 token (oklch 0.965 0.006 70)"
+      }
+    ]
+  }
+}
