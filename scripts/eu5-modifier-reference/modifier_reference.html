@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EU5 Country Modifiers</title>
+<script>
+try {
+	const t = localStorage.getItem('eu5-ref-theme');
+	document.documentElement.dataset.theme = t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+} catch (_) {
+	document.documentElement.dataset.theme = 'light';
+}
+</script>
+<style>
+html { background: oklch(0.965 0.006 70); }
+html[data-theme="dark"] { background: oklch(0.18 0.011 70); color: oklch(0.965 0.006 70); }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400..700&family=Noto+Sans:wght@400..600&family=Noto+Sans+Mono:wght@400..600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3/dist/index.global.js"></script>
+<style type="text/tailwindcss">
+/*@css*/
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@floating-ui/core@1.8.0/dist/floating-ui.core.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.8.0/dist/floating-ui.dom.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.44/dist/vue.global.prod.js"></script>
+</head>
+<body>
+<div id="app"><p style="padding: 2rem; font-family: system-ui, sans-serif">Loading the modifier reference… It needs an internet connection to load its libraries.</p></div>
+
+<script type="text/x-template" id="app-template">
+<div class="flex h-dvh flex-col">
+	<header class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-4 py-2.5">
+		<button type="button" class="-ml-1 rounded-md p-1.5 text-muted hover:bg-background hover:text-foreground lg:hidden" aria-label="Show topics and filters" @click="drawer = true">
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+		</button>
+		<a href="#/" class="text-heading whitespace-nowrap text-foreground">EU5 modifiers</a>
+		<nav class="flex rounded-lg border border-border p-0.5" aria-label="View">
+			<a v-for="v in views" :key="v.id" :href="'#/' + v.id" :aria-current="view === v.id ? 'page' : null"
+				class="flex items-center gap-1.5 rounded-md px-3 py-1 text-label"
+				:class="view === v.id ? 'bg-primary text-primary-foreground' : 'text-muted hover:text-foreground'">
+				{{ v.label }} <span class="text-caption tabular-nums" :class="view === v.id ? '' : 'text-muted'">{{ v.count }}</span>
+			</a>
+		</nav>
+		<div class="relative order-last w-full sm:order-none sm:w-auto sm:min-w-64 sm:flex-1 sm:max-w-xl">
+			<svg class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+			<input ref="searchEl" v-model="query" type="search" autocomplete="off" spellcheck="false"
+				:placeholder="view === 'modifiers' ? 'Search by name, key or description' : 'Search advances, laws, buildings, events…'"
+				:aria-label="view === 'modifiers' ? 'Search modifiers' : 'Search sources'" aria-controls="results"
+				class="w-full rounded-lg border border-input bg-background py-2 pr-10 pl-9 text-body text-foreground placeholder:text-muted"
+				@keydown="onSearchKey">
+			<kbd v-if="!query" class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded border border-border px-1.5 text-caption text-muted">/</kbd>
+		</div>
+		<button type="button" class="ml-auto rounded-md p-1.5 text-muted hover:bg-background hover:text-foreground"
+			:aria-label="theme === 'dark' ? 'Use light theme' : 'Use dark theme'" :data-tip="theme === 'dark' ? 'Use light theme' : 'Use dark theme'"
+			@click="theme = theme === 'dark' ? 'light' : 'dark'">
+			<svg v-if="theme === 'dark'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+			<svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+		</button>
+	</header>
+
+	<div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(18rem,24rem)_minmax(0,1fr)]">
+		<div v-if="drawer" class="fixed inset-0 z-30 bg-black/40 lg:hidden" @click="drawer = false"></div>
+		<aside class="scroll-pane min-h-0 flex-col border-r border-border bg-surface pb-6"
+			:class="drawer ? 'fixed inset-y-0 left-0 z-40 flex w-72 shadow-xl' : 'hidden lg:flex'"
+			:aria-label="view === 'modifiers' ? 'Topics and filters' : 'Source types and filters'">
+			<div class="flex items-center justify-between px-4 pt-4 lg:hidden">
+				<span class="text-subheading">Browse</span>
+				<button type="button" class="rounded-md p-1.5 text-muted hover:text-foreground" aria-label="Close" @click="drawer = false">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+				</button>
+			</div>
+
+			<template v-if="view === 'modifiers'">
+				<h2 class="px-4 pt-4 pb-1 text-caption text-muted">Topics</h2>
+				<nav aria-label="Topics">
+					<button v-for="t in topicCounts" :key="t.name" type="button" :aria-pressed="topic === t.name"
+						class="flex w-full items-center justify-between border-l-2 py-1.5 pr-4 pl-[calc(1rem-2px)] text-left text-label"
+						:class="topic === t.name ? 'border-primary bg-primary-soft text-primary-strong' : 'border-transparent text-foreground hover:bg-background'"
+						@click="pickTopic(t.name)">
+						<span>{{ t.label }}</span>
+						<span class="text-caption tabular-nums" :class="topic === t.name ? '' : 'text-muted'">{{ t.n.toLocaleString() }}</span>
+					</button>
+				</nav>
+
+				<div class="mt-6 border-t border-border px-4 pt-4">
+					<div class="flex items-baseline justify-between">
+						<h2 class="text-caption text-muted">Refine</h2>
+						<button v-if="filtersActive" type="button" class="text-caption text-secondary-strong hover:underline" @click="clearFilters">Clear filters</button>
+					</div>
+					<label class="mt-3 block">
+						<span class="text-caption text-muted">Used by</span>
+						<select v-model="system" class="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-small text-foreground">
+							<option value="">Any source type</option>
+							<option v-for="s in systems" :key="s.name" :value="s.name">{{ s.name }} ({{ s.n }})</option>
+						</select>
+					</label>
+					<chip-group v-for="g in modFilters" :key="g.id" :label="g.label" :options="g.options" v-model="filters[g.id]"></chip-group>
+				</div>
+			</template>
+
+			<template v-else>
+				<h2 class="px-4 pt-4 pb-1 text-caption text-muted">Source types</h2>
+				<nav aria-label="Source types">
+					<button v-for="k in kindCounts" :key="k.name" type="button" :aria-pressed="kind === k.name"
+						class="flex w-full items-center justify-between border-l-2 py-1.5 pr-4 pl-[calc(1rem-2px)] text-left text-label"
+						:class="kind === k.name ? 'border-primary bg-primary-soft text-primary-strong' : 'border-transparent text-foreground hover:bg-background'"
+						@click="pickKind(k.name)">
+						<span>{{ k.label }}</span>
+						<span class="text-caption tabular-nums" :class="kind === k.name ? '' : 'text-muted'">{{ k.n.toLocaleString() }}</span>
+					</button>
+				</nav>
+				<div class="mt-6 border-t border-border px-4 pt-1">
+					<chip-group label="Content" :options="contentOptions" v-model="srcContent"></chip-group>
+				</div>
+			</template>
+		</aside>
+
+		<section class="min-h-0 flex-col border-r border-border" :class="current ? 'hidden md:flex' : 'flex'" aria-label="Results">
+			<div class="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
+				<p class="text-small text-muted" aria-live="polite">{{ countText }}</p>
+				<label class="flex items-center gap-2">
+					<span class="sr-only">Sort</span>
+					<select v-model="sort" class="rounded-md border border-transparent bg-transparent py-1 pr-1 text-small text-muted hover:border-border">
+						<option v-if="query" value="match">Best match</option>
+						<option value="name">Name A–Z</option>
+						<option v-if="view === 'modifiers'" value="key">Key A–Z</option>
+						<option value="uses">{{ view === 'modifiers' ? 'Most used' : 'Grants the most' }}</option>
+					</select>
+				</label>
+			</div>
+			<a v-if="crossCount" :href="'#/' + otherView" class="shrink-0 border-b border-border bg-secondary-soft px-4 py-2 text-small text-secondary-strong hover:underline">
+				{{ crossCount.toLocaleString() }} {{ otherView === 'sources' ? (crossCount === 1 ? 'source' : 'sources') : (crossCount === 1 ? 'modifier' : 'modifiers') }} also {{ crossCount === 1 ? 'matches' : 'match' }} “{{ query.trim() }}”
+			</a>
+			<ul id="results" ref="listEl" class="scroll-pane min-h-0 flex-1">
+				<template v-if="view === 'modifiers'">
+					<li v-for="(m, i) in shown" :key="m.k">
+						<a :href="'#/modifiers/' + encodeURIComponent(m.k)" :id="'row-' + i" :aria-current="mod === m ? 'true' : null"
+							class="block border-b border-l-2 border-b-border px-4 py-2.5"
+							:class="mod === m ? 'border-l-primary bg-primary-soft' : 'border-l-transparent hover:bg-surface'">
+							<span class="flex items-baseline justify-between gap-3">
+								<span class="text-label text-foreground" v-html="hl(m.n)"></span>
+								<span class="shrink-0 text-caption tabular-nums" :class="m.u ? 'text-foreground' : 'text-muted'">{{ summary(m) }}</span>
+							</span>
+							<span class="mt-0.5 block truncate text-code text-muted" v-html="hl(m.k)"></span>
+						</a>
+					</li>
+				</template>
+				<template v-else>
+					<li v-for="(s, i) in shown" :key="s.i">
+						<a :href="'#/sources/' + s.i" :id="'row-' + i" :aria-current="src === s ? 'true' : null"
+							class="block border-b border-l-2 border-b-border px-4 py-2.5"
+							:class="src === s ? 'border-l-primary bg-primary-soft' : 'border-l-transparent hover:bg-surface'">
+							<span class="flex items-baseline justify-between gap-3">
+								<span class="text-label text-foreground" v-html="hl(s.title)"></span>
+								<span class="shrink-0 text-caption text-muted tabular-nums">{{ s.g.length }} {{ s.g.length === 1 ? 'grant' : 'grants' }}</span>
+							</span>
+							<span class="mt-0.5 flex items-center gap-2 text-caption text-muted">
+								<span>{{ s.kind }}</span>
+								<span v-if="s.dlc" class="text-tertiary-strong">{{ s.dlc }}</span>
+							</span>
+						</a>
+					</li>
+				</template>
+				<li v-if="list.length > limit" ref="sentinel" class="py-6 text-center text-small text-muted">Loading more…</li>
+				<li v-if="!list.length" class="px-6 py-12 text-center">
+					<p class="text-body text-foreground">{{ emptyText }}</p>
+					<div class="mt-4 flex flex-wrap justify-center gap-2">
+						<button v-if="view === 'modifiers' && topic" type="button" class="rounded-md border border-border px-3 py-1.5 text-label hover:bg-surface" @click="topic = ''">Search every topic</button>
+						<button v-if="view === 'sources' && kind" type="button" class="rounded-md border border-border px-3 py-1.5 text-label hover:bg-surface" @click="kind = ''">Search every source type</button>
+						<button v-if="filtersActive" type="button" class="rounded-md border border-border px-3 py-1.5 text-label hover:bg-surface" @click="clearFilters">Clear filters</button>
+					</div>
+				</li>
+			</ul>
+		</section>
+
+		<main ref="detailEl" class="scroll-pane min-h-0" :class="current ? 'block' : 'hidden md:block'">
+			<mod-detail v-if="mod" :mod="mod" @topic="pickTopic"></mod-detail>
+			<src-detail v-else-if="src" :src="src"></src-detail>
+			<overview v-else :view="view"></overview>
+		</main>
+	</div>
+
+	<div ref="tipEl" id="tip" role="tooltip" v-show="tip.open"
+		class="pointer-events-none fixed top-0 left-0 z-50 max-w-xs rounded-md bg-neutral-900 px-2.5 py-1.5 text-caption whitespace-pre-line text-neutral-50 shadow-lg dark:bg-neutral-100 dark:text-neutral-900">{{ tip.text }}</div>
+	<p class="sr-only" aria-live="polite">{{ copied ? 'Copied ' + copied : '' }}</p>
+</div>
+</script>
+
+<script type="text/x-template" id="chip-group-template">
+<fieldset class="mt-4">
+	<legend class="text-caption text-muted">{{ label }}</legend>
+	<div class="mt-1.5 flex flex-wrap gap-1.5">
+		<button v-for="[value, text] in options" :key="value" type="button" :aria-pressed="modelValue === value"
+			class="rounded-full border px-2.5 py-0.5 text-caption"
+			:class="modelValue === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-foreground hover:border-input'"
+			@click="$emit('update:modelValue', value)">{{ text }}</button>
+	</div>
+</fieldset>
+</script>
+
+<script type="text/x-template" id="back-link-template">
+<a :href="'#/' + view" class="mb-6 inline-flex items-center gap-1 text-label text-secondary-strong hover:underline md:hidden">
+	<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+	Back to the list
+</a>
+</script>
+
+<script type="text/x-template" id="mod-detail-template">
+<article class="mx-auto max-w-3xl px-5 py-8 sm:px-8">
+	<back-link view="modifiers"></back-link>
+	<h1 tabindex="-1" class="text-title text-foreground outline-none">{{ mod.n }}</h1>
+	<div class="mt-3 flex flex-wrap items-center gap-2">
+		<code class="rounded-md border border-border bg-surface px-2 py-1 text-code break-all text-foreground">{{ mod.k }}</code>
+		<button type="button" class="rounded-md border border-border px-2.5 py-1 text-label hover:bg-surface" @click="copy(mod.k)">
+			{{ copied === mod.k ? 'Copied' : 'Copy key' }}
+		</button>
+		<button type="button" class="rounded-md border border-border px-2.5 py-1 text-label hover:bg-surface" @click="copy(line)"
+			data-tip="Paste this inside a static modifier or any modifier block">
+			{{ copied === line ? 'Copied' : 'Copy' }} <code class="text-code text-muted">{{ line }}</code>
+		</button>
+	</div>
+	<p v-if="mod.d" class="mt-5 max-w-prose text-body text-foreground">{{ mod.d }}</p>
+
+	<dl class="mt-6 grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-6 gap-y-2 border-t border-border pt-5 text-small">
+		<template v-for="f in facts" :key="f.label">
+			<dt class="text-muted">{{ f.label }}</dt>
+			<dd :class="f.cls">
+				<button v-if="f.topic" type="button" class="text-secondary-strong hover:underline" @click="$emit('topic', mod.tp)"
+					:data-tip="'Show every modifier in ' + mod.tp">{{ f.text }}</button>
+				<template v-else>{{ f.text }}</template>
+			</dd>
+		</template>
+	</dl>
+
+	<section class="mt-10">
+		<h2 class="text-heading text-foreground">In vanilla</h2>
+		<p class="mt-2 max-w-prose text-small text-muted">{{ usageText }}</p>
+
+		<template v-if="d.values.length">
+			<value-ruler :mod="mod" :values="d.values" @pick="pickValue"></value-ruler>
+
+			<h3 class="mt-8 text-subheading">Fixed values</h3>
+			<p class="text-small text-muted">These make up the range above.</p>
+			<div class="mt-3 overflow-x-auto">
+				<table class="w-full text-small">
+					<thead>
+						<tr class="border-b border-border text-left text-caption text-muted">
+							<th class="py-2 pr-4 font-medium whitespace-nowrap">Written</th>
+							<th v-if="mod.t !== 'f'" class="py-2 pr-4 font-medium whitespace-nowrap">In game</th>
+							<th class="py-2 pr-4 font-medium whitespace-nowrap">Uses</th>
+							<th class="py-2 font-medium">Where</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="e in d.values" :key="e.v" :id="'value-' + e.v" class="border-b border-border align-top"
+							:class="picked === e.v ? 'bg-primary-soft' : ''">
+							<td class="py-2 pr-4 font-medium whitespace-nowrap tabular-nums" :class="toneText(e.v)">{{ fnum(e.v) }}</td>
+							<td v-if="mod.t !== 'f'" class="py-2 pr-4 whitespace-nowrap tabular-nums">{{ disp(e.v, mod.t) }}</td>
+							<td class="py-2 pr-4 whitespace-nowrap tabular-nums">{{ e.n }}×</td>
+							<td class="py-2">
+								<source-list :sources="e.srcs"></source-list>
+								<p v-if="e.via.length" class="mt-1 text-caption text-muted">Written as <code class="text-code">{{ e.via.join(', ') }}</code></p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</template>
+
+		<template v-if="d.base.length">
+			<h3 class="mt-8 text-subheading">Base value</h3>
+			<p class="text-small text-muted">Every country starts with this, so it isn't counted in the range.</p>
+			<p v-for="(g, i) in d.base" :key="i" class="mt-2 text-small">
+				<span v-if="g.v != null" class="font-medium tabular-nums" :class="toneText(g.v)">{{ fnum(g.v) }}</span>
+				<span v-if="g.v != null && mod.t !== 'f'" class="text-muted">{{ ' ' }}({{ disp(g.v, mod.t) }} in game)</span>
+				<code v-if="g.note" class="text-code">{{ g.note }}</code>
+				<span class="text-muted">{{ ' in ' }}</span><source-link :s="g.s"></source-link>
+			</p>
+		</template>
+
+		<template v-if="d.scaled.length">
+			<h3 class="mt-8 text-subheading">Scaled at runtime</h3>
+			<p class="text-small text-muted">The game multiplies the written value, so it isn't the real effect and isn't in the range.</p>
+			<div class="mt-3 overflow-x-auto">
+				<table class="w-full text-small">
+					<thead>
+						<tr class="border-b border-border text-left text-caption text-muted">
+							<th class="py-2 pr-4 font-medium whitespace-nowrap">Written</th>
+							<th class="py-2 pr-4 font-medium whitespace-nowrap">Scaling</th>
+							<th class="py-2 font-medium">Where</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="(g, i) in d.scaled" :key="i" class="border-b border-border align-top">
+							<td class="py-2 pr-4 font-medium whitespace-nowrap tabular-nums" :class="toneText(g.v)">{{ fnum(g.v) }}</td>
+							<td class="py-2 pr-4">{{ g.note }}</td>
+							<td class="py-2"><source-link :s="g.s"></source-link></td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</template>
+
+		<template v-if="d.dyn.length">
+			<h3 class="mt-8 text-subheading">Computed from game state</h3>
+			<p class="text-small text-muted">A formula that depends on the country, so there is no single number.</p>
+			<div class="mt-3 overflow-x-auto">
+				<table class="w-full text-small">
+					<thead>
+						<tr class="border-b border-border text-left text-caption text-muted">
+							<th class="py-2 pr-4 font-medium whitespace-nowrap">Written as</th>
+							<th class="py-2 font-medium">Where</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="(g, i) in d.dyn" :key="i" class="border-b border-border align-top">
+							<td class="py-2 pr-4 text-code break-all">{{ g.note }}</td>
+							<td class="py-2"><source-link :s="g.s"></source-link></td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</template>
+
+		<template v-if="d.flags.length">
+			<h3 class="mt-8 text-subheading">Granted by</h3>
+			<div class="mt-2"><source-list :sources="d.flags" :initial="12"></source-list></div>
+		</template>
+	</section>
+
+	<section v-if="d.related.length" class="mt-10">
+		<h2 class="text-heading text-foreground">Related modifiers</h2>
+		<ul class="mt-3 flex flex-wrap gap-2">
+			<li v-for="r in d.related" :key="r.k">
+				<a :href="'#/modifiers/' + encodeURIComponent(r.k)" :data-tip="r.k"
+					class="inline-block rounded-full border border-border px-3 py-1 text-label text-secondary-strong hover:border-secondary hover:bg-secondary-soft">{{ r.n }}</a>
+			</li>
+		</ul>
+	</section>
+</article>
+</script>
+
+<script type="text/x-template" id="value-ruler-template">
+<figure class="mt-6">
+	<div class="relative mx-3 h-28 select-none">
+		<button v-for="t in ticks" :key="t.v" type="button" :data-tip="t.tip" :aria-label="t.label"
+			class="group absolute bottom-[3.25rem] flex w-3 -translate-x-1/2 justify-center"
+			:style="{ left: t.x + '%', height: t.h + 'px' }" @click="$emit('pick', t.v)">
+			<span class="w-[3px] rounded-t-full" :class="[t.bg, t.top ? 'opacity-100' : 'opacity-60 group-hover:opacity-100']"></span>
+		</button>
+		<span v-if="top" class="absolute -translate-x-1/2 text-caption whitespace-nowrap text-foreground"
+			:style="{ left: clampLabel(top.x) + '%', bottom: (3.25 + top.h / 16 + 0.25) + 'rem' }">
+			{{ disp(top.v, mod.t) }} <span class="text-muted">most common</span>
+		</span>
+		<div class="scale-bar absolute right-0 bottom-10 left-0 h-3 rounded-[1px]"></div>
+		<div v-if="zero !== null" class="absolute bottom-8 h-7 w-px bg-foreground" :style="{ left: zero + '%' }"></div>
+		<span class="absolute bottom-2 left-0 text-caption tabular-nums" :class="toneText(lo)">{{ disp(lo, mod.t) }}</span>
+		<span v-if="zero !== null && zero > 12 && zero < 88" class="absolute bottom-2 -translate-x-1/2 text-caption text-muted" :style="{ left: zero + '%' }">0</span>
+		<span class="absolute right-0 bottom-2 text-caption tabular-nums" :class="toneText(hi)">{{ disp(hi, mod.t) }}</span>
+	</div>
+	<figcaption class="mt-1 text-caption text-muted">Each tick is a value vanilla writes; taller ticks are used more often. Hover or focus one to see where.</figcaption>
+</figure>
+</script>
+
+<script type="text/x-template" id="source-link-template">
+<a :href="'#/sources/' + s.i" class="text-secondary-strong hover:underline" :data-tip="tipText">{{ s.title }}</a>{{ ' ' }}<span class="text-muted">{{ s.kind.toLowerCase() }}</span><template v-if="s.dlc">{{ ' ' }}<span class="text-tertiary-strong">({{ s.dlc }})</span></template>
+</script>
+
+<script type="text/x-template" id="source-list-template">
+<ul class="space-y-0.5">
+	<li v-for="s in visible" :key="s.i"><source-link :s="s"></source-link></li>
+</ul>
+<button v-if="sources.length > initial" type="button" class="mt-1 text-caption text-secondary-strong hover:underline" @click="open = !open">
+	{{ open ? 'Show fewer' : 'Show all ' + sources.length }}
+</button>
+</script>
+
+<script type="text/x-template" id="src-detail-template">
+<article class="mx-auto max-w-3xl px-5 py-8 sm:px-8">
+	<back-link view="sources"></back-link>
+	<h1 tabindex="-1" class="text-title text-foreground outline-none">{{ src.title }}</h1>
+	<dl class="mt-6 grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-6 gap-y-2 border-t border-border pt-5 text-small">
+		<dt class="text-muted">Type</dt><dd>{{ src.kind }}</dd>
+		<dt class="text-muted">Script key</dt><dd><code class="text-code break-all">{{ src.obj }}</code></dd>
+		<dt class="text-muted">From</dt><dd :class="src.dlc ? 'text-tertiary-strong' : ''">{{ src.dlc || 'Base game' }}</dd>
+		<dt class="text-muted">File</dt><dd class="text-code break-all text-muted">{{ src.file }}</dd>
+	</dl>
+
+	<section class="mt-10">
+		<h2 class="text-heading text-foreground">Grants {{ rows.length }} {{ rows.length === 1 ? 'modifier' : 'modifiers' }}</h2>
+		<div class="mt-4 overflow-x-auto">
+			<table class="w-full text-small">
+				<thead>
+					<tr class="border-b border-border text-left text-caption text-muted">
+						<th class="py-2 pr-4 font-medium whitespace-nowrap">Modifier</th>
+						<th class="py-2 pr-4 font-medium whitespace-nowrap">Written</th>
+						<th class="py-2 pr-4 font-medium whitespace-nowrap">In game</th>
+						<th class="py-2 font-medium">Note</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr v-for="(r, i) in rows" :key="i" class="border-b border-border align-top">
+						<td class="py-2 pr-4">
+							<a :href="'#/modifiers/' + encodeURIComponent(r.m.k)" class="text-secondary-strong hover:underline">{{ r.m.n }}</a>
+							<span class="block text-code break-all text-muted">{{ r.m.k }}</span>
+						</td>
+						<td class="py-2 pr-4 font-medium whitespace-nowrap tabular-nums" :class="r.tone">{{ r.written }}</td>
+						<td class="py-2 pr-4 whitespace-nowrap tabular-nums" :class="r.tone">{{ r.shown }}</td>
+						<td class="py-2 text-muted">
+							{{ r.note }}<template v-if="r.code">{{ ' ' }}<code class="text-code break-all">{{ r.code }}</code></template>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</section>
+</article>
+</script>
+
+<script type="text/x-template" id="overview-template">
+<article class="mx-auto max-w-3xl px-5 py-10 sm:px-8">
+	<template v-if="view === 'modifiers'">
+		<h1 class="text-display text-foreground">Country modifiers</h1>
+		<p class="mt-5 max-w-prose text-body text-foreground">
+			Every modifier a country can use in Europa Universalis V, read from your installed game and DLC on {{ stats.date }}.
+			{{ stats.total.toLocaleString() }} modifiers, {{ stats.used.toLocaleString() }} of them used somewhere in vanilla script,
+			granted by {{ sourceCount.toLocaleString() }} advances, laws, privileges, buildings, events and more.
+		</p>
+
+		<h2 class="mt-10 text-heading">Most used</h2>
+		<ul class="mt-3 grid gap-x-6 sm:grid-cols-2">
+			<li v-for="m in mostUsed" :key="m.k" class="border-b border-border">
+				<a :href="'#/modifiers/' + encodeURIComponent(m.k)" class="flex items-baseline justify-between gap-3 py-2 hover:text-secondary-strong">
+					<span class="text-label">{{ m.n }}</span>
+					<span class="text-caption text-muted tabular-nums">{{ m.uses }}×</span>
+				</a>
+			</li>
+		</ul>
+
+		<h2 class="mt-10 text-heading">How to read a modifier</h2>
+		<dl class="mt-3 space-y-3 text-small">
+			<div><dt class="font-semibold">The ruler</dt><dd class="text-muted">Spans the lowest to the highest fixed value the base game and DLC write. Each tick is one value; taller means used more often. Pick a value inside it and your mod will feel like vanilla.</dd></div>
+			<div><dt class="font-semibold">Written and in game</dt><dd class="text-muted">Written is what you type in script. For percent modifiers the game shows it times 100: <code class="text-code">0.05</code> is +5%.</dd></div>
+			<div><dt class="font-semibold">Green and red</dt><dd class="text-muted">Follow the game's own tooltip colours. Green means the value helps the country.</dd></div>
+			<div><dt class="font-semibold">Scaled, computed and base values</dt><dd class="text-muted">Values the game multiplies (estate power, sliders, bureaucracy funding), values from a formula, and the value every country starts with are listed apart and left out of the range.</dd></div>
+			<div><dt class="font-semibold">What's left out</dt><dd class="text-muted">Location, character and religion modifiers don't work in a country modifier, so they aren't listed. Unit modifiers are, and apply to all of the country's units. Topics are sorted from the words in each key, so a few may sit in an odd place.</dd></div>
+			<div><dt class="font-semibold">Check extreme values</dt><dd class="text-muted">Static modifiers the engine applies itself (difficulty, ruler skill, years since start) may be scaled in ways the files don't show. Open the source before copying an extreme value.</dd></div>
+		</dl>
+
+		<h2 class="mt-10 text-heading">Keyboard</h2>
+		<dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-small">
+			<dt><kbd class="rounded border border-border px-1.5 text-caption">/</kbd></dt><dd class="text-muted">Jump to search</dd>
+			<dt><kbd class="rounded border border-border px-1.5 text-caption">↑</kbd> <kbd class="rounded border border-border px-1.5 text-caption">↓</kbd></dt><dd class="text-muted">Move through the results while searching</dd>
+			<dt><kbd class="rounded border border-border px-1.5 text-caption">Enter</kbd></dt><dd class="text-muted">Open the highlighted result</dd>
+			<dt><kbd class="rounded border border-border px-1.5 text-caption">Esc</kbd></dt><dd class="text-muted">Clear the search</dd>
+		</dl>
+	</template>
+
+	<template v-else>
+		<h1 class="text-display text-foreground">Sources</h1>
+		<p class="mt-5 max-w-prose text-body text-foreground">
+			Everything in the game files that gives a country a modifier: {{ sourceCount.toLocaleString() }} advances, laws, privileges,
+			buildings, events and more. Pick one to see every modifier it grants and the value it uses.
+		</p>
+		<h2 class="mt-10 text-heading">Grant the most</h2>
+		<ul class="mt-3 grid gap-x-6 sm:grid-cols-2">
+			<li v-for="s in biggestSources" :key="s.i" class="border-b border-border">
+				<a :href="'#/sources/' + s.i" class="flex items-baseline justify-between gap-3 py-2 hover:text-secondary-strong">
+					<span><span class="text-label">{{ s.title }}</span> <span class="text-caption text-muted">{{ s.kind }}</span></span>
+					<span class="text-caption text-muted tabular-nums">{{ s.g.length }}</span>
+				</a>
+			</li>
+		</ul>
+	</template>
+</article>
+</script>
+
+<script type="application/json" id="eu5-data">/*@data*/</script>
+<script>
+/*@js*/
+</script>
+</body>
+</html>

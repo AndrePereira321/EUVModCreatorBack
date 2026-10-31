@@ -2,7 +2,9 @@
 
 Builds a searchable page listing every modifier a **country** can use in Europa Universalis V, read from the
 installed game and DLC files. For each modifier it shows the in-game name and description, the value type, which
-direction helps, and the **min / most common / max** value the game itself uses, with where each one comes from.
+direction helps, the limits its definition sets, and every value the game itself uses, on a ruler from the lowest to
+the highest, with where each one comes from. A second view lists the **sources** — advances, laws, privileges,
+buildings, events… — and every modifier each one grants.
 
 ## Run it
 
@@ -18,9 +20,21 @@ python scripts/eu5-modifier-reference/build_modifier_reference.py \
 Arguments: the game's `game` folder, the HTML file to write, and optionally a plain-text version. It only reads
 the game folder. Re-run it after a patch or a new DLC.
 
+**The page needs an internet connection to open:** Vue, Floating UI, Tailwind's browser build and the fonts load
+from jsDelivr and Google Fonts at pinned versions. The data itself is inside the HTML file.
+
+## Using the page
+
+- Search matches key, in-game name and description; the best matches come first. `/` jumps to the search box,
+  ↑ ↓ move through the results, Enter opens one, Esc clears.
+- Topics in the sidebar come from the words in each key (`topics.py`), so a few modifiers sit in an odd one.
+  "Used by" filters on what actually grants the modifier.
+- Every source links to its own page and every modifier back, and the URL follows, so back / forward and bookmarks
+  work.
+
 ## How values are counted
 
-- **Fixed values** make up min / most common / max. Named script values (`small_tax_income_efficiency_bonus`),
+- **Fixed values** make up the ruler and the range. Named script values (`small_tax_income_efficiency_bonus`),
   `@variables` and `@[math]` are resolved to numbers; the page shows which name was used.
 - **Scaled at runtime** values are listed apart: the game multiplies them (`scales_with`, bureaucracy `scale`,
   estate power and satisfaction, societal value sliders), so the written number is not the real effect.
@@ -34,8 +48,11 @@ location, character and religion ones don't work in a country modifier.
 
 ## Files
 
-| file                               | what it does                                                         |
-| ---------------------------------- | -------------------------------------------------------------------- |
-| `build_modifier_reference.py`      | reads definitions, localisation and every use, writes HTML and TXT   |
-| `pdxparse.py`                      | small parser for Paradox script (`key = value`, `{ }` blocks)        |
-| `modifier_reference_template.html` | the page; the script injects the data in place of `/*__DATA__*/null` |
+| file                          | what it does                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| `build_modifier_reference.py` | reads definitions, localisation and every use, writes HTML and TXT                   |
+| `pdxparse.py`                 | small parser for Paradox script (`key = value`, `{ }` blocks)                        |
+| `topics.py`                   | sorts modifiers into sidebar topics by the words in their key                        |
+| `modifier_reference.html`     | the page and its Vue templates; the script fills `/*@css*/`, `/*@js*/`, `/*@data*/`  |
+| `modifier_reference.js`       | the Vue app: search, filters, routing, the ruler, tooltips                           |
+| `modifier_reference.css`      | the mod creator's theme tokens (copied from the frontend's `index.css`) for Tailwind |

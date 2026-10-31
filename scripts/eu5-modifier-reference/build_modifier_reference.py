@@ -5,8 +5,10 @@ See README.md next to this file.
 """
 import ast, collections, datetime, glob, json, operator, os, re, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 from pdxparse import parse
+from topics import topic_rules
 
 G = sys.argv[1].replace(chr(92), '/').rstrip('/')
 OUT_HTML = sys.argv[2]
@@ -37,6 +39,28 @@ def game_files(pattern):
 
 
 # --- modifier definitions -------------------------------------------------
+def def_details(flat, gd):
+    """The definition's optional settings, in the short keys the page reads."""
+    g = {kk: vv.strip('"') for kk, _, vv in gd if kk and not isinstance(vv, list)}
+    out = {}
+    for k in ('min', 'max'):
+        if k in g and NUM.fullmatch(g[k]):
+            out[k] = float(g[k])
+    for k, short in (('cap_zero_to_one', 'z1'), ('scale_with_pop', 'pop'), ('ai', 'ai')):
+        if g.get(k) == 'yes':
+            out[short] = 1
+    if g.get('should_show_in_modifiers_tab') == 'no':
+        out['hid'] = 1
+    if g.get('format'):
+        out['fmt'] = g['format']
+    bias = [vv.strip('"') for kk, _, vv in gd if kk == 'bias_type' and not isinstance(vv, list)]
+    if bias:
+        out['bias'] = bias
+    if 'decimals' in flat:
+        out['dec'] = int(flat['decimals'])
+    return out
+
+
 defs = {}
 for f in game_files('main_menu/common/modifier_type_definitions/*.txt'):
     for k, op, body in parse(read(f)):
@@ -52,8 +76,20 @@ for f in game_files('main_menu/common/modifier_type_definitions/*.txt'):
             'color': flat.get('color', 'good'),
             'dlc': dlc_of(f),
             'file': rel(f),
+            'details': def_details(flat, gd),
         }
 WANT = {k for k, d in defs.items() if d['category'] in INCLUDED}
+
+
+def block_keys(pattern):
+    return [k for f in game_files(pattern) for k, _, v in parse(read(f)) if k and not k.startswith('@') and isinstance(v, list)]
+
+
+topic_of = topic_rules(
+    block_keys('in_game/common/goods/*.txt'),
+    [e.removesuffix('_estate') for e in block_keys('in_game/common/estates/*.txt')],
+    block_keys('in_game/common/pop_types/*.txt'),
+)
 
 # --- localization ---------------------------------------------------------
 loc = {}
@@ -365,7 +401,11 @@ for k in sorted(WANT):
         'n': clean(loc[name_key]) if name_key in loc else humanize(k).capitalize(),
         'd': clean(loc.get(f'MODIFIER_TYPE_DESC_{k}', '')),
         'c': d['category'], 't': d['type'], 'g': d['color'], 'x': d['dlc'],
+        'tp': topic_of(k, d['details'].get('ai')),
+        'sy': sorted({sources[o['src']]['kind'] for o in occ.get(k, [])}),
     }
+    if d['details']:
+        rec['df'] = d['details']
     fixed, scaled, dyn, base, flags = [], [], [], [], []
     for o in occ.get(k, []):
         if d['type'] == 'b':
@@ -407,6 +447,27 @@ for k in sorted(WANT):
         rec['fls'] = list(dict.fromkeys(o['src'] for o in flags))[:12]
     records.append(rec)
 
+# --- what each source grants: [modifier index, value, kind, note] ----------
+# kind: f fixed, s scaled at runtime, d computed from game state, b base value, y yes/no flag
+mod_idx = {r['k']: i for i, r in enumerate(records)}
+for s in sources:
+    s['g'] = []
+for k in sorted(WANT):
+    for o in occ.get(k, []):
+        if defs[k]['type'] == 'b':
+            g = [mod_idx[k], None, 'y']
+        elif o['base']:
+            g = [mod_idx[k], o.get('val'), 'b', o.get('dyn')]
+        elif 'dyn' in o:
+            g = [mod_idx[k], None, 'd', o['dyn']]
+        elif o['scale']:
+            g = [mod_idx[k], o['val'], 's', o['scale']]
+        else:
+            g = [mod_idx[k], o['val'], 'f', o.get('via')]
+        while g[-1] is None:
+            g.pop()
+        sources[o['src']]['g'].append(g)
+
 stats = {
     'total': len(records),
     'country': sum(r['c'] == 'country' for r in records),
@@ -421,11 +482,18 @@ stats = {
 print('records', stats, 'excluded', dict(excluded), 'sources', len(sources))
 
 # --- HTML -------------------------------------------------------------------
-template = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'modifier_reference_template.html'), encoding='utf-8').read()
+def page_part(name):
+    return open(os.path.join(HERE, name), encoding='utf-8').read()
+
+
 payload = json.dumps({'mods': records, 'src': sources, 'stats': stats}, ensure_ascii=False, separators=(',', ':'))
-payload = payload.replace('</', '<\\/')
+parts = {
+    'css': page_part('modifier_reference.css'),
+    'js': page_part('modifier_reference.js'),
+    'data': payload.replace('</', '<\\/'),
+}
 with open(OUT_HTML, 'w', encoding='utf-8') as fh:
-    fh.write(template.replace('/*__DATA__*/null', payload))
+    fh.write(re.sub(r'/\*@(css|js|data)\*/', lambda m: parts[m.group(1)], page_part('modifier_reference.html')))
 
 # --- TXT --------------------------------------------------------------------
 if OUT_TXT:
@@ -451,7 +519,7 @@ if OUT_TXT:
         L += ['=' * 100, f' {title} ({len(rs)})', '=' * 100, '']
         for r in rs:
             L.append(f"{r['k']}  -  {r['n']}")
-            L.append('    ' + ' | '.join([TYPE[r['t']], DIR.get(r['g'], 'Neutral') if r['t'] != 'b' else ('Beneficial' if r['g'] == 'good' else 'Harmful' if r['g'] == 'bad' else 'Neutral'), 'DLC: ' + r['x'] if r['x'] else 'Base game']))
+            L.append('    ' + ' | '.join([r['tp'], TYPE[r['t']], DIR.get(r['g'], 'Neutral') if r['t'] != 'b' else ('Beneficial' if r['g'] == 'good' else 'Harmful' if r['g'] == 'bad' else 'Neutral'), 'DLC: ' + r['x'] if r['x'] else 'Base game']))
             if r.get('u'):
                 L.append(f"    Range: {fnum(r['mn'][0])} ({src_txt(r['mn'][1])})  ..  {fnum(r['mx'][0])} ({src_txt(r['mx'][1])})")
                 L.append('    Most common: ' + ', '.join(f'{fnum(v)} ({n}x)' for v, n in r['top']) + f"   [{r['u']} fixed uses]")

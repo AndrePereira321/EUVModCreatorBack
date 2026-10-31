@@ -1,0 +1,396 @@
+/* The mod creator's theme, copied from EUVModCreatorFront/src/styles/index.css. Keep the two in step. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+	--color-*: initial;
+	--color-white: #fff;
+	--color-black: #000;
+
+	--color-neutral-50: oklch(0.985 0.005 70);
+	--color-neutral-100: oklch(0.965 0.006 70);
+	--color-neutral-200: oklch(0.925 0.008 70);
+	--color-neutral-300: oklch(0.87 0.009 70);
+	--color-neutral-400: oklch(0.73 0.01 70);
+	--color-neutral-500: oklch(0.6 0.011 70);
+	--color-neutral-600: oklch(0.49 0.011 70);
+	--color-neutral-700: oklch(0.41 0.011 70);
+	--color-neutral-800: oklch(0.32 0.011 70);
+	--color-neutral-900: oklch(0.25 0.011 70);
+	--color-neutral-950: oklch(0.18 0.011 70);
+
+	--color-primary-50: oklch(0.98 0.03 82);
+	--color-primary-100: oklch(0.95 0.07 82);
+	--color-primary-200: oklch(0.91 0.1 82);
+	--color-primary-300: oklch(0.86 0.13 82);
+	--color-primary-400: oklch(0.8 0.14 82);
+	--color-primary-500: oklch(0.74 0.14 82);
+	--color-primary-600: oklch(0.65 0.13 82);
+	--color-primary-700: oklch(0.56 0.11 82);
+	--color-primary-800: oklch(0.47 0.09 82);
+	--color-primary-900: oklch(0.38 0.07 82);
+	--color-primary-950: oklch(0.29 0.05 82);
+
+	--color-secondary-50: oklch(0.97 0.015 262);
+	--color-secondary-100: oklch(0.94 0.03 262);
+	--color-secondary-200: oklch(0.88 0.055 262);
+	--color-secondary-300: oklch(0.8 0.085 262);
+	--color-secondary-400: oklch(0.68 0.12 262);
+	--color-secondary-500: oklch(0.58 0.15 262);
+	--color-secondary-600: oklch(0.5 0.155 262);
+	--color-secondary-700: oklch(0.43 0.14 262);
+	--color-secondary-800: oklch(0.36 0.115 262);
+	--color-secondary-900: oklch(0.3 0.09 262);
+	--color-secondary-950: oklch(0.23 0.06 262);
+
+	--color-tertiary-50: oklch(0.97 0.015 320);
+	--color-tertiary-100: oklch(0.94 0.03 320);
+	--color-tertiary-200: oklch(0.89 0.055 320);
+	--color-tertiary-300: oklch(0.81 0.09 320);
+	--color-tertiary-400: oklch(0.7 0.13 320);
+	--color-tertiary-500: oklch(0.6 0.155 320);
+	--color-tertiary-600: oklch(0.52 0.15 320);
+	--color-tertiary-700: oklch(0.45 0.135 320);
+	--color-tertiary-800: oklch(0.38 0.11 320);
+	--color-tertiary-900: oklch(0.31 0.085 320);
+	--color-tertiary-950: oklch(0.24 0.06 320);
+
+	--color-success-50: oklch(0.97 0.02 148);
+	--color-success-100: oklch(0.94 0.04 148);
+	--color-success-200: oklch(0.89 0.07 148);
+	--color-success-300: oklch(0.8 0.11 148);
+	--color-success-400: oklch(0.7 0.13 148);
+	--color-success-500: oklch(0.6 0.13 148);
+	--color-success-600: oklch(0.52 0.12 148);
+	--color-success-700: oklch(0.45 0.11 148);
+	--color-success-800: oklch(0.38 0.09 148);
+	--color-success-900: oklch(0.31 0.07 148);
+	--color-success-950: oklch(0.23 0.05 148);
+
+	--color-info-50: oklch(0.97 0.012 235);
+	--color-info-100: oklch(0.94 0.025 235);
+	--color-info-200: oklch(0.88 0.045 235);
+	--color-info-300: oklch(0.8 0.07 235);
+	--color-info-400: oklch(0.71 0.09 235);
+	--color-info-500: oklch(0.62 0.1 235);
+	--color-info-600: oklch(0.53 0.1 235);
+	--color-info-700: oklch(0.45 0.09 235);
+	--color-info-800: oklch(0.38 0.075 235);
+	--color-info-900: oklch(0.31 0.06 235);
+	--color-info-950: oklch(0.23 0.04 235);
+
+	--color-warning-50: oklch(0.97 0.02 52);
+	--color-warning-100: oklch(0.95 0.045 52);
+	--color-warning-200: oklch(0.9 0.08 52);
+	--color-warning-300: oklch(0.82 0.12 52);
+	--color-warning-400: oklch(0.75 0.15 52);
+	--color-warning-500: oklch(0.67 0.17 52);
+	--color-warning-600: oklch(0.58 0.16 52);
+	--color-warning-700: oklch(0.5 0.14 52);
+	--color-warning-800: oklch(0.42 0.115 52);
+	--color-warning-900: oklch(0.34 0.09 52);
+	--color-warning-950: oklch(0.25 0.06 52);
+
+	--color-error-50: oklch(0.97 0.015 25);
+	--color-error-100: oklch(0.94 0.03 25);
+	--color-error-200: oklch(0.89 0.06 25);
+	--color-error-300: oklch(0.79 0.1 25);
+	--color-error-400: oklch(0.68 0.15 25);
+	--color-error-500: oklch(0.58 0.18 25);
+	--color-error-600: oklch(0.51 0.19 25);
+	--color-error-700: oklch(0.44 0.17 25);
+	--color-error-800: oklch(0.37 0.14 25);
+	--color-error-900: oklch(0.31 0.11 25);
+	--color-error-950: oklch(0.23 0.07 25);
+
+	--font-*: initial;
+	--font-sans: "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Cormorant Garamond", Georgia, serif;
+	--font-mono: "Noto Sans Mono", ui-monospace, Consolas, monospace;
+
+	--font-weight-*: initial;
+	--font-weight-normal: 400;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+
+	--text-*: initial;
+
+	--text-display: 3rem;
+	--text-display--line-height: 1.05;
+	--text-display--font-weight: 500;
+	--text-display--letter-spacing: -0.015em;
+
+	--text-title: 2.25rem;
+	--text-title--line-height: 1.1;
+	--text-title--font-weight: 600;
+	--text-title--letter-spacing: -0.01em;
+
+	--text-heading: 1.625rem;
+	--text-heading--line-height: 1.2;
+	--text-heading--font-weight: 600;
+	--text-heading--letter-spacing: -0.005em;
+
+	--text-subheading: 1.125rem;
+	--text-subheading--line-height: 1.4;
+	--text-subheading--font-weight: 600;
+
+	--text-body: 1rem;
+	--text-body--line-height: 1.6;
+	--text-body--font-weight: 400;
+
+	--text-small: 0.875rem;
+	--text-small--line-height: 1.5;
+	--text-small--font-weight: 400;
+
+	--text-label: 0.875rem;
+	--text-label--line-height: 1.25;
+	--text-label--font-weight: 500;
+	--text-label--letter-spacing: 0.005em;
+
+	--text-caption: 0.75rem;
+	--text-caption--line-height: 1.35;
+	--text-caption--font-weight: 500;
+	--text-caption--letter-spacing: 0.02em;
+
+	/* Only on this page: script keys. */
+	--text-code: 0.8125rem;
+	--text-code--line-height: 1.4;
+	--text-code--font-weight: 500;
+}
+
+@utility text-display {
+	font-family: var(--font-display);
+}
+@utility text-title {
+	font-family: var(--font-display);
+}
+@utility text-heading {
+	font-family: var(--font-display);
+}
+@utility text-subheading {
+	font-family: var(--font-sans);
+}
+@utility text-body {
+	font-family: var(--font-sans);
+}
+@utility text-small {
+	font-family: var(--font-sans);
+}
+@utility text-label {
+	font-family: var(--font-sans);
+}
+@utility text-caption {
+	font-family: var(--font-sans);
+}
+@utility text-code {
+	font-family: var(--font-mono);
+}
+
+:root {
+	color-scheme: light;
+
+	--background: var(--color-neutral-100);
+	--surface: var(--color-neutral-50);
+	--foreground: var(--color-neutral-900);
+	--muted: var(--color-neutral-600);
+	--border: var(--color-neutral-300);
+	--input: var(--color-neutral-500);
+	--ring: var(--color-primary-700);
+
+	--primary: var(--color-primary-500);
+	--primary-foreground: var(--color-neutral-950);
+	--primary-soft: var(--color-primary-100);
+	--primary-strong: var(--color-primary-800);
+
+	--secondary: var(--color-secondary-600);
+	--secondary-foreground: var(--color-white);
+	--secondary-soft: var(--color-secondary-100);
+	--secondary-strong: var(--color-secondary-800);
+
+	--tertiary: var(--color-tertiary-600);
+	--tertiary-foreground: var(--color-white);
+	--tertiary-soft: var(--color-tertiary-100);
+	--tertiary-strong: var(--color-tertiary-800);
+
+	--success: var(--color-success-600);
+	--success-foreground: var(--color-white);
+	--success-soft: var(--color-success-100);
+	--success-strong: var(--color-success-800);
+
+	--info: var(--color-info-600);
+	--info-foreground: var(--color-white);
+	--info-soft: var(--color-info-100);
+	--info-strong: var(--color-info-800);
+
+	--warning: var(--color-warning-500);
+	--warning-foreground: var(--color-neutral-950);
+	--warning-soft: var(--color-warning-100);
+	--warning-strong: var(--color-warning-800);
+
+	--error: var(--color-error-600);
+	--error-foreground: var(--color-white);
+	--error-soft: var(--color-error-100);
+	--error-strong: var(--color-error-800);
+}
+
+[data-theme="dark"] {
+	color-scheme: dark;
+
+	--background: var(--color-neutral-950);
+	--surface: var(--color-neutral-900);
+	--foreground: var(--color-neutral-100);
+	--muted: var(--color-neutral-400);
+	--border: var(--color-neutral-800);
+	--input: var(--color-neutral-500);
+	--ring: var(--color-primary-400);
+
+	--primary: var(--color-primary-400);
+	--primary-foreground: var(--color-neutral-950);
+	--primary-soft: var(--color-primary-900);
+	--primary-strong: var(--color-primary-300);
+
+	--secondary: var(--color-secondary-400);
+	--secondary-foreground: var(--color-neutral-950);
+	--secondary-soft: var(--color-secondary-900);
+	--secondary-strong: var(--color-secondary-300);
+
+	--tertiary: var(--color-tertiary-400);
+	--tertiary-foreground: var(--color-neutral-950);
+	--tertiary-soft: var(--color-tertiary-900);
+	--tertiary-strong: var(--color-tertiary-300);
+
+	--success: var(--color-success-400);
+	--success-foreground: var(--color-neutral-950);
+	--success-soft: var(--color-success-900);
+	--success-strong: var(--color-success-300);
+
+	--info: var(--color-info-400);
+	--info-foreground: var(--color-neutral-950);
+	--info-soft: var(--color-info-900);
+	--info-strong: var(--color-info-300);
+
+	--warning: var(--color-warning-400);
+	--warning-foreground: var(--color-neutral-950);
+	--warning-soft: var(--color-warning-900);
+	--warning-strong: var(--color-warning-300);
+
+	--error: var(--color-error-400);
+	--error-foreground: var(--color-neutral-950);
+	--error-soft: var(--color-error-900);
+	--error-strong: var(--color-error-300);
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-surface: var(--surface);
+	--color-foreground: var(--foreground);
+	--color-muted: var(--muted);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary-soft: var(--primary-soft);
+	--color-primary-strong: var(--primary-strong);
+
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary-soft: var(--secondary-soft);
+	--color-secondary-strong: var(--secondary-strong);
+
+	--color-tertiary: var(--tertiary);
+	--color-tertiary-foreground: var(--tertiary-foreground);
+	--color-tertiary-soft: var(--tertiary-soft);
+	--color-tertiary-strong: var(--tertiary-strong);
+
+	--color-success: var(--success);
+	--color-success-foreground: var(--success-foreground);
+	--color-success-soft: var(--success-soft);
+	--color-success-strong: var(--success-strong);
+
+	--color-info: var(--info);
+	--color-info-foreground: var(--info-foreground);
+	--color-info-soft: var(--info-soft);
+	--color-info-strong: var(--info-strong);
+
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-warning-soft: var(--warning-soft);
+	--color-warning-strong: var(--warning-strong);
+
+	--color-error: var(--error);
+	--color-error-foreground: var(--error-foreground);
+	--color-error-soft: var(--error-soft);
+	--color-error-strong: var(--error-strong);
+}
+
+@layer base {
+	body {
+		@apply text-body;
+		background-color: var(--background);
+		color: var(--foreground);
+	}
+
+	h1,
+	h2,
+	h3 {
+		text-wrap: balance;
+	}
+
+	p {
+		text-wrap: pretty;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+
+	button:not(:disabled),
+	[role="button"]:not(:disabled) {
+		cursor: pointer;
+	}
+
+	[v-cloak] {
+		display: none;
+	}
+
+	mark {
+		background: var(--primary-soft);
+		color: var(--primary-strong);
+		border-radius: 2px;
+	}
+
+	::selection {
+		background: var(--primary-soft);
+		color: var(--foreground);
+	}
+}
+
+/* The value ruler: a map scale bar, ten alternating segments between the lowest and highest vanilla value. */
+@utility scale-bar {
+	background:
+		repeating-linear-gradient(
+			90deg,
+			var(--foreground) 0 10%,
+			transparent 10% 20%
+		);
+	border: 1px solid var(--foreground);
+}
+
+@utility scroll-pane {
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+	scrollbar-color: var(--border) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
